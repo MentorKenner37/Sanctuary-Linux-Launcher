@@ -325,7 +325,7 @@ public partial class MainWindow
         _majorNewsPanel.Children.Clear();
         _developmentNewsPanel.Children.Clear();
 
-        var major = cache.Entries.Where(x => x.IsMajor).Take(8).ToList();
+        var major = cache.Entries.Where(x => x.IsMajor).Take(4).ToList();
         var minor = cache.Entries.Where(x => !x.IsMajor).Take(12).ToList();
 
         if (major.Count == 0)
