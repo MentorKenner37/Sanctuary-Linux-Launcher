@@ -132,10 +132,10 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            if (TryLoadNewsCache(out var cached, requireFresh: false))
+            if (TryLoadNewsCache(out var staleCache, requireFresh: false))
             {
-                RenderSanctuaryNews(cached);
-                _newsStatusText.Text = $"GitHub refresh failed; showing cached news from {cached.FetchedAt.ToLocalTime():g}.";
+                RenderSanctuaryNews(staleCache);
+                _newsStatusText.Text = $"GitHub refresh failed; showing cached news from {staleCache.FetchedAt.ToLocalTime():g}.";
                 _newsStatusText.Foreground = Muted;
             }
             else
