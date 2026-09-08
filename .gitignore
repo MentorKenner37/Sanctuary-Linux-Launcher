@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.cache
+*.log
+publish/
+dist/
+artifacts/
+*.zip
+*.tar.gz
+*.tar.xz
+*.7z
+.DS_Store
+Thumbs.db
