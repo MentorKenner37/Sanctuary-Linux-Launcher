@@ -127,6 +127,23 @@ public partial class MainWindow
             MaxWidth = 620
         };
 
+        var serverDescription = new TextBlock
+        {
+            Text = "Loading server description…",
+            FontSize = 11,
+            Foreground = Muted,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 360
+        };
+
+        var modeLabel = new TextBlock
+        {
+            Text = "SIGN IN TO PLAY",
+            FontSize = 11,
+            FontWeight = FontWeight.Bold,
+            Foreground = Good
+        };
+
         var titleBlock = new StackPanel
         {
             Spacing = 3,
@@ -139,13 +156,8 @@ public partial class MainWindow
                     FontWeight = FontWeight.Bold,
                     Foreground = Brushes.White
                 },
-                new TextBlock
-                {
-                    Text = "SIGN IN TO PLAY",
-                    FontSize = 11,
-                    FontWeight = FontWeight.Bold,
-                    Foreground = Good
-                }
+                serverDescription,
+                modeLabel
             }
         };
 
@@ -215,7 +227,7 @@ public partial class MainWindow
             if (!modalCard.Children.Contains(_serverPlayPanel))
                 modalCard.Children.Add(_serverPlayPanel);
 
-            ((TextBlock)titleBlock.Children[1]).Text = "SIGN IN TO PLAY";
+            modeLabel.Text = "SIGN IN TO PLAY";
             registerButton.Content = "CREATE ACCOUNT";
         }
 
@@ -227,7 +239,7 @@ public partial class MainWindow
             if (!modalCard.Children.Contains(registrationPanel))
                 modalCard.Children.Add(registrationPanel);
 
-            ((TextBlock)titleBlock.Children[1]).Text = "CREATE A SERVER ACCOUNT";
+            modeLabel.Text = "CREATE A SERVER ACCOUNT";
             registerButton.Content = "BACK TO SIGN IN";
         }
 
@@ -256,9 +268,14 @@ public partial class MainWindow
         try
         {
             await JoinCurrentServerAsync();
+            var description = ServerDescriptionText.Text?.Trim();
+            serverDescription.Text = string.IsNullOrWhiteSpace(description)
+                ? "No server description provided."
+                : description;
         }
         catch
         {
+            serverDescription.Text = "Server description unavailable.";
         }
     }
 }
