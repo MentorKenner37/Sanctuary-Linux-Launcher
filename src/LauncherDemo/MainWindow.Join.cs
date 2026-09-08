@@ -57,15 +57,8 @@ public partial class MainWindow
             if (!Uri.TryCreate(manifest.WebApiUrl, UriKind.Absolute, out var apiUri) || apiUri.Scheme != Uri.UriSchemeHttps)
                 throw new InvalidDataException("This server's WebApiUrl is not HTTPS. Login is blocked.");
 
-            // Client storage in the recovered launcher is keyed by manifest.Name.
-            // Make that internal key unique per server host while keeping the clean
-            // manifest name in the UI. This prevents different servers from sharing
-            // and re-hashing the same Client directory.
-            var storageName = $"{manifest.Name} [{serverBaseUri.Host}{(serverBaseUri.IsDefaultPort ? string.Empty : $"_{serverBaseUri.Port}")}]";
-            var storageManifest = manifest with { Name = storageName };
-
             _serverBaseUri = serverBaseUri;
-            _serverManifest = storageManifest;
+            _serverManifest = manifest;
 
             ServerNameText.Text = manifest.Name;
             ServerDescriptionText.Text = manifest.Description;
@@ -75,23 +68,15 @@ public partial class MainWindow
 
             OnlineText.Text = "CONNECTED";
             OnlineText.Foreground = Good;
-            SetConnectionState($"Connected to {manifest.Name}. Preparing client automatically…", true);
+            SetConnectionState($"Connected to {manifest.Name}. Ready to launch.", true);
+            ClientStatusText.Text = "Client files will be checked when you launch.";
+            ClientStatusText.Foreground = Muted;
+            LaunchStatusText.Text = "Ready to launch.";
+            LaunchStatusText.Foreground = Good;
 
             LaunchButton.IsEnabled = _gameProcess is null;
 
             await TryLoadServerLogoAsync(serverBaseUri, manifest.LogoUrl);
-
-            try
-            {
-                await VerifyAndUpdateClientAsync(serverBaseUri, storageManifest);
-                SetConnectionState($"{manifest.Name} is ready to play.", true);
-            }
-            catch (Exception ex)
-            {
-                ClientStatusText.Text = $"Automatic client preparation failed: {ex.Message}";
-                ClientStatusText.Foreground = Bad;
-                SetConnectionState($"Connected to {manifest.Name}. Client verification will retry when you launch.", true);
-            }
         }
         catch (Exception ex)
         {
@@ -103,7 +88,7 @@ public partial class MainWindow
             ServerDescriptionText.Text = "Join a server to load its metadata.";
             ManifestVersionText.Text = "Manifest: —";
             SetConnectionState(ex.Message, false);
-            ClientStatusText.Text = "Could not prepare the client because the server connection failed.";
+            ClientStatusText.Text = "Could not load server information.";
             ClientStatusText.Foreground = Bad;
         }
         finally
