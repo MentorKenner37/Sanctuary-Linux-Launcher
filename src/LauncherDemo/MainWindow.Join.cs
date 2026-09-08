@@ -39,7 +39,6 @@ public partial class MainWindow
             return;
         }
 
-        var clientReady = false;
         SetBusy(true);
         LaunchButton.IsEnabled = false;
         OnlineText.Text = "CONNECTING";
@@ -71,19 +70,23 @@ public partial class MainWindow
             OnlineText.Foreground = Good;
             SetConnectionState($"Connected to {manifest.Name}. Preparing client automatically…", true);
 
+            // Once the server manifest is valid, the user should be able to press Launch.
+            // LaunchClicked performs client verification again before login/launch, so a
+            // background client-prep failure should not permanently grey out the button.
+            LaunchButton.IsEnabled = _gameProcess is null;
+
             await TryLoadServerLogoAsync(serverBaseUri, manifest.LogoUrl);
 
             try
             {
                 await VerifyAndUpdateClientAsync(serverBaseUri, manifest);
-                clientReady = true;
                 SetConnectionState($"{manifest.Name} is ready to play.", true);
             }
             catch (Exception ex)
             {
                 ClientStatusText.Text = $"Automatic client preparation failed: {ex.Message}";
                 ClientStatusText.Foreground = Bad;
-                SetConnectionState($"Connected to {manifest.Name}, but the client is not ready: {ex.Message}", false);
+                SetConnectionState($"Connected to {manifest.Name}. Client verification will retry when you launch.", true);
             }
         }
         catch (Exception ex)
@@ -103,7 +106,7 @@ public partial class MainWindow
         {
             ClientProgress.IsVisible = false;
             SetBusy(false);
-            LaunchButton.IsEnabled = clientReady && _gameProcess is null;
+            LaunchButton.IsEnabled = _serverManifest is not null && _gameProcess is null;
         }
     }
 }
