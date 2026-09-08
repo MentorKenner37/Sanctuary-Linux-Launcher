@@ -16,6 +16,8 @@ public partial class MainWindow
     {
         public string Resolution { get; set; } = "Default (game controlled)";
         public string FrameRate { get; set; } = "Unlimited";
+        public string DisplayMode { get; set; } = "Borderless Fullscreen";
+        public string VSync { get; set; } = "On";
     }
 
     private async void GameDisplaySettingsLoaded(object? sender, RoutedEventArgs e)
@@ -29,6 +31,8 @@ public partial class MainWindow
         var settings = LoadGameDisplayPreferences();
         SelectComboValue(ResolutionComboBox, settings.Resolution, "Default (game controlled)");
         SelectComboValue(FrameRateComboBox, settings.FrameRate, "Unlimited");
+        SelectComboValue(DisplayModeComboBox, settings.DisplayMode, "Borderless Fullscreen");
+        SelectComboValue(VSyncComboBox, settings.VSync, "On");
 
         _loadingGameDisplaySettings = false;
         ApplyFrameRateLimit(settings.FrameRate);
@@ -47,7 +51,9 @@ public partial class MainWindow
         var settings = new GameDisplayPreferences
         {
             Resolution = SelectedComboValue(ResolutionComboBox, "Default (game controlled)"),
-            FrameRate = SelectedComboValue(FrameRateComboBox, "Unlimited")
+            FrameRate = SelectedComboValue(FrameRateComboBox, "Unlimited"),
+            DisplayMode = SelectedComboValue(DisplayModeComboBox, "Borderless Fullscreen"),
+            VSync = SelectedComboValue(VSyncComboBox, "On")
         };
 
         SaveGameDisplayPreferences(settings);
@@ -134,10 +140,28 @@ public partial class MainWindow
         return int.TryParse(digits, out var fps) && fps > 0 ? fps : 0;
     }
 
+    private static bool IsVSyncEnabled(string value) =>
+        !string.Equals(value, "Off", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBorderlessFullscreen(string value) =>
+        string.Equals(value, "Borderless Fullscreen", StringComparison.OrdinalIgnoreCase);
+
     private static void ApplyFrameRateLimit(string value)
     {
         var fps = ParseFrameRate(value);
         Environment.SetEnvironmentVariable("DXVK_FRAME_RATE", fps.ToString());
+    }
+
+    private static bool TryParseResolution(string value, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        var parts = value.Split('x', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 2
+            && int.TryParse(parts[0], out width)
+            && int.TryParse(parts[1], out height)
+            && width >= 640
+            && height >= 480;
     }
 
     private async Task ApplyResolutionAsync(string value)
@@ -227,8 +251,9 @@ public partial class MainWindow
         var resolutionText = string.Equals(settings.Resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase)
             ? "game-controlled resolution"
             : settings.Resolution;
+        var vsyncText = IsVSyncEnabled(settings.VSync) ? "V-Sync on" : "V-Sync off";
 
-        GameDisplayStatusText.Text = $"Active for next launch: {resolutionText} • {fpsText}.";
+        GameDisplayStatusText.Text = $"Active for next launch: {settings.DisplayMode} • {resolutionText} • {fpsText} • {vsyncText}.";
         GameDisplayStatusText.Foreground = Good;
     }
 }
