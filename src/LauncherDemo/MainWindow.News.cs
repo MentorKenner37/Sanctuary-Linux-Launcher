@@ -37,7 +37,8 @@ public partial class MainWindow
 
         oldHome.Margin = new Thickness(0);
         _serverPlayPanel = oldHome;
-        HomePage.Content = BuildNewsPage();
+        HomePage.Content = BuildAutomaticNewsPage();
+        _ = RefreshSanctuaryNewsAsync();
 
         foreach (var text in this.GetVisualDescendants().OfType<TextBlock>())
         {
