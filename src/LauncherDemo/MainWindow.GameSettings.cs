@@ -43,12 +43,18 @@ public partial class MainWindow
         SelectComboValue(_vSyncComboBox, settings.VSync, "On");
 
         _loadingGameDisplaySettings = false;
-        ApplyFrameRateLimit(settings.FrameRate);
+        ApplyDxvkEnvironment(settings);
 
-        if (!string.Equals(settings.Resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase))
-            await ApplyResolutionAsync(settings.Resolution);
-
-        UpdateGameDisplayStatus(settings);
+        try
+        {
+            await ApplyDisplayModeAsync(settings);
+            UpdateGameDisplayStatus(settings);
+        }
+        catch (Exception ex)
+        {
+            GameDisplayStatusText.Text = $"Could not apply display settings: {ex.Message}";
+            GameDisplayStatusText.Foreground = Bad;
+        }
     }
 
     private void EnsureAdvancedDisplayControls()
@@ -90,7 +96,7 @@ public partial class MainWindow
         displayModeStack.Children.Add(_displayModeComboBox);
         displayModeStack.Children.Add(new TextBlock
         {
-            Text = "Borderless Fullscreen keeps Free Realms windowed internally while filling the display.",
+            Text = "Borderless Fullscreen keeps Free Realms windowed internally while filling the primary display.",
             Foreground = new SolidColorBrush(Color.Parse("#747474")),
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap
@@ -133,19 +139,19 @@ public partial class MainWindow
         };
 
         SaveGameDisplayPreferences(settings);
-        ApplyFrameRateLimit(settings.FrameRate);
+        ApplyDxvkEnvironment(settings);
 
         GameDisplayStatusText.Text = "Applying display settings…";
         GameDisplayStatusText.Foreground = Muted;
 
         try
         {
-            await ApplyResolutionAsync(settings.Resolution);
+            await ApplyDisplayModeAsync(settings);
             UpdateGameDisplayStatus(settings);
         }
         catch (Exception ex)
         {
-            GameDisplayStatusText.Text = $"Could not apply resolution: {ex.Message}";
+            GameDisplayStatusText.Text = $"Could not apply display settings: {ex.Message}";
             GameDisplayStatusText.Foreground = Bad;
         }
     }
@@ -222,10 +228,15 @@ public partial class MainWindow
     private static bool IsBorderlessFullscreen(string value) =>
         string.Equals(value, "Borderless Fullscreen", StringComparison.OrdinalIgnoreCase);
 
-    private static void ApplyFrameRateLimit(string value)
+    private static void ApplyDxvkEnvironment(GameDisplayPreferences settings)
     {
-        var fps = ParseFrameRate(value);
+        var fps = ParseFrameRate(settings.FrameRate);
+        var syncInterval = IsVSyncEnabled(settings.VSync) ? 1 : 0;
+
         Environment.SetEnvironmentVariable("DXVK_FRAME_RATE", fps.ToString());
+        Environment.SetEnvironmentVariable(
+            "DXVK_CONFIG",
+            $"d3d9.presentInterval = {syncInterval}; dxgi.syncInterval = {syncInterval}");
     }
 
     private static bool TryParseResolution(string value, out int width, out int height)
@@ -240,26 +251,7 @@ public partial class MainWindow
             && height >= 480;
     }
 
-    private static string? FindExecutableInPath(string name)
-    {
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            try
-            {
-                var candidate = Path.Combine(directory, name);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-            catch
-            {
-            }
-        }
-
-        return null;
-    }
-
-    private async Task ApplyResolutionAsync(string value)
+    private async Task ApplyDisplayModeAsync(GameDisplayPreferences settings)
     {
         var protonPath = ReadRuntimeConfig("proton-path.txt");
         var steamRoot = ReadRuntimeConfig("steam-path.txt");
@@ -274,7 +266,33 @@ public partial class MainWindow
 
         Directory.CreateDirectory(prefixPath);
 
-        if (string.Equals(value, "Default (game controlled)", StringComparison.OrdinalIgnoreCase))
+        var borderless = IsBorderlessFullscreen(settings.DisplayMode);
+        var resolution = settings.Resolution;
+
+        if (borderless)
+        {
+            var primary = Screens.Primary?.Bounds;
+            var nativeWidth = primary?.Width ?? 1920;
+            var nativeHeight = primary?.Height ?? 1080;
+            resolution = $"{nativeWidth}x{nativeHeight}";
+
+            await RunProtonRegistryCommandAsync(
+                protonPath,
+                steamRoot,
+                prefixPath,
+                new[] { "add", @"HKCU\Software\Wine\X11 Driver", "/v", "Decorated", "/t", "REG_SZ", "/d", "N", "/f" });
+        }
+        else
+        {
+            await RunProtonRegistryCommandAsync(
+                protonPath,
+                steamRoot,
+                prefixPath,
+                new[] { "add", @"HKCU\Software\Wine\X11 Driver", "/v", "Decorated", "/t", "REG_SZ", "/d", "Y", "/f" },
+                ignoreFailure: true);
+        }
+
+        if (!borderless && string.Equals(resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase))
         {
             await RunProtonRegistryCommandAsync(
                 protonPath,
@@ -285,7 +303,7 @@ public partial class MainWindow
             return;
         }
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(value, @"^\d{3,4}x\d{3,4}$"))
+        if (!TryParseResolution(resolution, out _, out _))
             throw new InvalidDataException("Invalid resolution selection.");
 
         await RunProtonRegistryCommandAsync(
@@ -298,7 +316,7 @@ public partial class MainWindow
             protonPath,
             steamRoot,
             prefixPath,
-            new[] { "add", @"HKCU\Software\Wine\Explorer\Desktops", "/v", "Sanctuary", "/t", "REG_SZ", "/d", value, "/f" });
+            new[] { "add", @"HKCU\Software\Wine\Explorer\Desktops", "/v", "Sanctuary", "/t", "REG_SZ", "/d", resolution, "/f" });
     }
 
     private static async Task RunProtonRegistryCommandAsync(
@@ -343,9 +361,11 @@ public partial class MainWindow
     {
         var fps = ParseFrameRate(settings.FrameRate);
         var fpsText = fps == 0 ? "unlimited FPS" : $"{fps} FPS cap";
-        var resolutionText = string.Equals(settings.Resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase)
-            ? "game-controlled resolution"
-            : settings.Resolution;
+        var resolutionText = IsBorderlessFullscreen(settings.DisplayMode)
+            ? "native borderless resolution"
+            : string.Equals(settings.Resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase)
+                ? "game-controlled resolution"
+                : settings.Resolution;
         var vsyncText = IsVSyncEnabled(settings.VSync) ? "V-Sync on" : "V-Sync off";
 
         GameDisplayStatusText.Text = $"Active for next launch: {settings.DisplayMode} • {resolutionText} • {fpsText} • {vsyncText}.";
