@@ -57,8 +57,15 @@ public partial class MainWindow
             if (!Uri.TryCreate(manifest.WebApiUrl, UriKind.Absolute, out var apiUri) || apiUri.Scheme != Uri.UriSchemeHttps)
                 throw new InvalidDataException("This server's WebApiUrl is not HTTPS. Login is blocked.");
 
+            // Client storage in the recovered launcher is keyed by manifest.Name.
+            // Make that internal key unique per server host while keeping the clean
+            // manifest name in the UI. This prevents different servers from sharing
+            // and re-hashing the same Client directory.
+            var storageName = $"{manifest.Name} [{serverBaseUri.Host}{(serverBaseUri.IsDefaultPort ? string.Empty : $"_{serverBaseUri.Port}")}]";
+            var storageManifest = manifest with { Name = storageName };
+
             _serverBaseUri = serverBaseUri;
-            _serverManifest = manifest;
+            _serverManifest = storageManifest;
 
             ServerNameText.Text = manifest.Name;
             ServerDescriptionText.Text = manifest.Description;
@@ -70,16 +77,13 @@ public partial class MainWindow
             OnlineText.Foreground = Good;
             SetConnectionState($"Connected to {manifest.Name}. Preparing client automatically…", true);
 
-            // Once the server manifest is valid, the user should be able to press Launch.
-            // LaunchClicked performs client verification again before login/launch, so a
-            // background client-prep failure should not permanently grey out the button.
             LaunchButton.IsEnabled = _gameProcess is null;
 
             await TryLoadServerLogoAsync(serverBaseUri, manifest.LogoUrl);
 
             try
             {
-                await VerifyAndUpdateClientAsync(serverBaseUri, manifest);
+                await VerifyAndUpdateClientAsync(serverBaseUri, storageManifest);
                 SetConnectionState($"{manifest.Name} is ready to play.", true);
             }
             catch (Exception ex)
