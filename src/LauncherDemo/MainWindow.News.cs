@@ -127,8 +127,7 @@ public partial class MainWindow
             MaxWidth = 620
         };
 
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        header.Children.Add(new StackPanel
+        var titleBlock = new StackPanel
         {
             Spacing = 3,
             Children =
@@ -148,16 +147,34 @@ public partial class MainWindow
                     Foreground = Good
                 }
             }
-        });
+        };
+
+        var headerActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+
+        var registerButton = new Button
+        {
+            Content = "CREATE ACCOUNT",
+            Padding = new Thickness(14, 7)
+        };
 
         var closeButton = new Button
         {
             Content = "CLOSE",
-            Padding = new Thickness(12, 7),
-            HorizontalAlignment = HorizontalAlignment.Right
+            Padding = new Thickness(12, 7)
         };
-        Grid.SetColumn(closeButton, 1);
-        header.Children.Add(closeButton);
+
+        headerActions.Children.Add(registerButton);
+        headerActions.Children.Add(closeButton);
+
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        header.Children.Add(titleBlock);
+        Grid.SetColumn(headerActions, 1);
+        header.Children.Add(headerActions);
 
         modalCard.Children.Add(header);
         modalCard.Children.Add(_serverPlayPanel);
@@ -188,15 +205,51 @@ public partial class MainWindow
         _serverLoginOverlay = overlay;
         windowRoot.Children.Add(overlay);
 
+        Control? registrationPanel = null;
+
+        void ShowSignIn()
+        {
+            if (registrationPanel is not null)
+                modalCard.Children.Remove(registrationPanel);
+
+            if (!modalCard.Children.Contains(_serverPlayPanel))
+                modalCard.Children.Add(_serverPlayPanel);
+
+            ((TextBlock)titleBlock.Children[1]).Text = "SIGN IN TO PLAY";
+            registerButton.Content = "CREATE ACCOUNT";
+        }
+
+        void ShowRegistration()
+        {
+            modalCard.Children.Remove(_serverPlayPanel);
+            registrationPanel ??= BuildRegistrationPanel(selected, ShowSignIn);
+
+            if (!modalCard.Children.Contains(registrationPanel))
+                modalCard.Children.Add(registrationPanel);
+
+            ((TextBlock)titleBlock.Children[1]).Text = "CREATE A SERVER ACCOUNT";
+            registerButton.Content = "BACK TO SIGN IN";
+        }
+
         void CloseOverlay()
         {
             if (_serverLoginOverlay is null)
                 return;
 
             modalCard.Children.Remove(_serverPlayPanel);
+            if (registrationPanel is not null)
+                modalCard.Children.Remove(registrationPanel);
             windowRoot.Children.Remove(_serverLoginOverlay);
             _serverLoginOverlay = null;
         }
+
+        registerButton.Click += (_, _) =>
+        {
+            if (modalCard.Children.Contains(_serverPlayPanel))
+                ShowRegistration();
+            else
+                ShowSignIn();
+        };
 
         closeButton.Click += (_, _) => CloseOverlay();
 
