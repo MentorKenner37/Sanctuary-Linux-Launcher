@@ -97,7 +97,7 @@ public partial class MainWindow
         displayModeStack.Children.Add(_displayModeComboBox);
         displayModeStack.Children.Add(new TextBlock
         {
-            Text = "Borderless Fullscreen uses Gamescope. Windowed launches directly through Proton so the window can be resized and maximized normally.",
+            Text = "Borderless Fullscreen uses Gamescope at the resolution selected above. Windowed launches directly through Proton so the window can be resized and maximized normally.",
             Foreground = new SolidColorBrush(Color.Parse("#747474")),
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap
@@ -236,6 +236,16 @@ public partial class MainWindow
 
     private (int Width, int Height) GetPrimaryDisplaySize()
     {
+        // Borderless Gamescope should use the launcher's selected resolution for
+        // both its nested game size and its output size. If the user leaves the
+        // resolution on Default, fall back to the monitor's actual native size.
+        var settings = LoadGameDisplayPreferences();
+        if (IsBorderlessFullscreen(settings.DisplayMode)
+            && TryParseResolution(settings.Resolution, out var selectedWidth, out var selectedHeight))
+        {
+            return (selectedWidth, selectedHeight);
+        }
+
         var primary = Screens.Primary?.Bounds;
         return (primary?.Width ?? 1920, primary?.Height ?? 1080);
     }
