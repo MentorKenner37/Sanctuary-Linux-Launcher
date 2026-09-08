@@ -307,41 +307,76 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(login.LaunchArguments))
             tokens.Add(login.LaunchArguments.Trim());
 
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = protonPath,
-                WorkingDirectory = clientDirectory,
-                Arguments = $"run \"FreeRealms.exe\" {string.Join(' ', tokens)}",
-                UseShellExecute = false
-            },
-            EnableRaisingEvents = true
-        };
-
-        process.StartInfo.Environment["STEAM_COMPAT_DATA_PATH"] = prefixPath;
-        process.StartInfo.Environment["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = steamRoot;
-        process.StartInfo.Environment["PROTON_LOG"] = "0";
-
-        var backend = ReadRuntimeConfig("graphics-backend.txt");
-        process.StartInfo.Environment["PROTON_USE_WINED3D"] = backend.Equals("wined3d", StringComparison.OrdinalIgnoreCase) ? "1" : "0";
-
-        // Current DXVK versions no longer honor DXVK_FRAME_RATE. Generate a real
-        // DXVK config file and point this launch at it. Free Realms is D3D9, but
-        // setting both options keeps this compatible with alternate render paths.
         var displayPreferences = LoadGameDisplayPreferences();
         var requestedFps = ParseFrameRate(displayPreferences.FrameRate);
-        var dxvkLimit = requestedFps == 0 ? -1 : requestedFps;
+        var dxvkLimit = requestedFps == 0 ? 0 : requestedFps;
+        var syncInterval = IsVSyncEnabled(displayPreferences.VSync) ? 1 : 0;
+
         Directory.CreateDirectory(_launcherStateDirectory);
         var dxvkConfigPath = Path.Combine(_launcherStateDirectory, "dxvk-launcher.conf");
         File.WriteAllText(
             dxvkConfigPath,
             $"[FreeRealms.exe]{Environment.NewLine}" +
             $"d3d9.maxFrameRate = {dxvkLimit}{Environment.NewLine}" +
-            $"dxgi.maxFrameRate = {dxvkLimit}{Environment.NewLine}");
-        process.StartInfo.Environment["DXVK_CONFIG_FILE"] = dxvkConfigPath;
-        // Keep the legacy variable too for older Proton/DXVK builds.
-        process.StartInfo.Environment["DXVK_FRAME_RATE"] = requestedFps.ToString();
+            $"dxgi.maxFrameRate = {dxvkLimit}{Environment.NewLine}" +
+            $"d3d9.presentInterval = {syncInterval}{Environment.NewLine}" +
+            $"dxgi.syncInterval = {syncInterval}{Environment.NewLine}");
+
+        var gamescopePath = FindExecutableInPath("gamescope");
+        var requestedResolution = GetRequestedGameResolution(displayPreferences);
+        var primaryResolution = GetPrimaryDisplaySize();
+        var borderless = IsBorderlessFullscreen(displayPreferences.DisplayMode);
+        var useGamescope = gamescopePath is not null && (borderless || requestedResolution.Width > 0);
+
+        ProcessStartInfo startInfo;
+        if (useGamescope)
+        {
+            var gameWidth = requestedResolution.Width > 0 ? requestedResolution.Width : primaryResolution.Width;
+            var gameHeight = requestedResolution.Height > 0 ? requestedResolution.Height : primaryResolution.Height;
+            var outputWidth = borderless ? primaryResolution.Width : gameWidth;
+            var outputHeight = borderless ? primaryResolution.Height : gameHeight;
+
+            var gameArguments = string.Join(' ', tokens);
+            var gamescopeArguments = $"-w {gameWidth} -h {gameHeight} -W {outputWidth} -H {outputHeight} ";
+            if (borderless)
+                gamescopeArguments += "-f ";
+
+            gamescopeArguments += $"-- \"{protonPath}\" run \"FreeRealms.exe\" {gameArguments}";
+
+            startInfo = new ProcessStartInfo
+            {
+                FileName = gamescopePath!,
+                WorkingDirectory = clientDirectory,
+                Arguments = gamescopeArguments,
+                UseShellExecute = false
+            };
+        }
+        else
+        {
+            startInfo = new ProcessStartInfo
+            {
+                FileName = protonPath,
+                WorkingDirectory = clientDirectory,
+                Arguments = $"run \"FreeRealms.exe\" {string.Join(' ', tokens)}",
+                UseShellExecute = false
+            };
+        }
+
+        startInfo.Environment["STEAM_COMPAT_DATA_PATH"] = prefixPath;
+        startInfo.Environment["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = steamRoot;
+        startInfo.Environment["PROTON_LOG"] = "0";
+        startInfo.Environment["DXVK_CONFIG_FILE"] = dxvkConfigPath;
+        // Keep the legacy limiter variable for older Proton/DXVK builds.
+        startInfo.Environment["DXVK_FRAME_RATE"] = requestedFps.ToString();
+
+        var backend = ReadRuntimeConfig("graphics-backend.txt");
+        startInfo.Environment["PROTON_USE_WINED3D"] = backend.Equals("wined3d", StringComparison.OrdinalIgnoreCase) ? "1" : "0";
+
+        var process = new Process
+        {
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
 
         process.Exited += (_, _) => Dispatcher.UIThread.Post(() =>
         {
@@ -356,7 +391,7 @@ public partial class MainWindow : Window
         if (!process.Start())
         {
             process.Dispose();
-            throw new InvalidOperationException("Proton process could not be started.");
+            throw new InvalidOperationException(useGamescope ? "Gamescope could not be started." : "Proton process could not be started.");
         }
 
         _gameProcess = process;
