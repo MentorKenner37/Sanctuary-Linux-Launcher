@@ -23,9 +23,6 @@
           <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,10" Click="ServersClicked">
             <TextBlock Text="SERVERS" Foreground="#DADADA" FontWeight="SemiBold" />
           </Button>
-          <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,10" Click="SettingsClicked">
-            <TextBlock Text="SETTINGS" Foreground="#DADADA" FontWeight="SemiBold" />
-          </Button>
           <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,10" Click="AboutClicked">
             <TextBlock Text="ABOUT" Foreground="#DADADA" FontWeight="SemiBold" />
           </Button>
@@ -33,10 +30,22 @@
 
         <StackPanel Grid.Row="3" Spacing="10">
           <Border BorderBrush="#2B2B2B" BorderThickness="0,1,0,0" Padding="0,12,0,0">
-            <StackPanel Spacing="3">
-              <TextBlock Text="NORTHFORGE" Foreground="#55D27E" FontWeight="Bold" />
-              <TextBlock Text="Sanctuary Linux launcher" FontSize="11" Foreground="#858585" TextWrapping="Wrap" />
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <StackPanel Spacing="3">
+                <TextBlock Text="NORTHFORGE" Foreground="#55D27E" FontWeight="Bold" />
+                <TextBlock Text="Sanctuary Linux launcher" FontSize="11" Foreground="#858585" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Column="1"
+                      Width="34" Height="34"
+                      Padding="0"
+                      HorizontalContentAlignment="Center"
+                      VerticalContentAlignment="Center"
+                      VerticalAlignment="Center"
+                      Click="SettingsClicked"
+                      ToolTip.Tip="Settings">
+                <TextBlock Text="⚙" FontSize="18" Foreground="#BDBDBD" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Button>
+            </Grid>
           </Border>
         </StackPanel>
       </Grid>
