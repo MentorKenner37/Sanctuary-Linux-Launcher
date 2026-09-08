@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using Avalonia.Controls;
@@ -118,8 +120,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ClientStatusText.Text = $"Client verification failed: {ex.Message}";
-            ClientStatusText.Foreground = Bad;
+            SetClientProgressText($"Client verification failed: {ex.Message}", Bad);
         }
         finally
         {
@@ -154,7 +155,7 @@ public partial class MainWindow : Window
 
         try
         {
-            LaunchStatusText.Text = "Checking client files…";
+            SetClientProgressText("Checking client files…", Muted);
             var clientDirectory = await VerifyAndUpdateClientAsync(_serverBaseUri, _serverManifest);
 
             LaunchStatusText.Text = "Signing in…";
@@ -188,8 +189,7 @@ public partial class MainWindow : Window
 
     private async Task<string> VerifyAndUpdateClientAsync(Uri serverBaseUri, ServerManifest manifest)
     {
-        ClientStatusText.Foreground = Muted;
-        ClientStatusText.Text = "Downloading clientmanifest.xml…";
+        SetClientProgressText("Downloading clientmanifest.xml…", Muted);
         ClientProgress.Value = 0;
         ClientProgress.IsVisible = true;
 
@@ -202,7 +202,7 @@ public partial class MainWindow : Window
         if (clientManifest.Languages.Count > 0 && !clientManifest.Languages.Contains("en_US", StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("This server does not advertise en_US client support.");
 
-        var serverDirectory = GetServerDirectory(manifest.Name);
+        var serverDirectory = GetServerDirectory(manifest.Name, serverBaseUri);
         var clientDirectory = Path.Combine(serverDirectory, "Client");
         Directory.CreateDirectory(clientDirectory);
 
@@ -214,35 +214,41 @@ public partial class MainWindow : Window
         for (var i = 0; i < files.Count; i++)
         {
             var file = files[i];
+            SetClientProgressText($"Checking {i + 1}/{files.Count}: {file.RelativePath}", Muted);
             var localPath = GetSafeClientPath(clientDirectory, file.RelativePath);
             var valid = await IsLocalFileValidAsync(localPath, file);
             if (!valid)
                 needsDownload.Add(file);
 
             ClientProgress.Value = 35.0 * (i + 1) / files.Count;
-            ClientStatusText.Text = $"Checking client files… {i + 1}/{files.Count}";
         }
 
         if (needsDownload.Count == 0)
         {
             ClientProgress.Value = 100;
-            ClientStatusText.Text = "All client files are up to date.";
-            ClientStatusText.Foreground = Good;
+            SetClientProgressText("All client files are up to date.", Good);
             return clientDirectory;
         }
 
         for (var i = 0; i < needsDownload.Count; i++)
         {
             var file = needsDownload[i];
-            ClientStatusText.Text = $"Downloading {i + 1}/{needsDownload.Count}: {file.RelativePath}";
+            SetClientProgressText($"Downloading {i + 1}/{needsDownload.Count}: {file.RelativePath}", Muted);
             await DownloadClientFileAsync(serverBaseUri, clientDirectory, file);
             ClientProgress.Value = 35 + 65.0 * (i + 1) / needsDownload.Count;
         }
 
         ClientProgress.Value = 100;
-        ClientStatusText.Text = $"Client ready. Updated {needsDownload.Count} file(s).";
-        ClientStatusText.Foreground = Good;
+        SetClientProgressText($"Client ready. Updated {needsDownload.Count} file(s).", Good);
         return clientDirectory;
+    }
+
+    private void SetClientProgressText(string message, IBrush brush)
+    {
+        ClientStatusText.Text = message;
+        ClientStatusText.Foreground = brush;
+        LaunchStatusText.Text = message;
+        LaunchStatusText.Foreground = brush;
     }
 
     private async Task<LoginResponse> LoginAsync(ServerManifest manifest, string username, string password)
@@ -292,10 +298,12 @@ public partial class MainWindow : Window
 
         Directory.CreateDirectory(prefixPath);
 
-        var tokens = new List<string>();
-        tokens.Add($"Server={manifest.LoginServer}");
-        tokens.Add($"SessionId={login.SessionId}");
-        tokens.Add("Internationalization:Locale=en_US");
+        var tokens = new List<string>
+        {
+            $"Server={manifest.LoginServer}",
+            $"SessionId={login.SessionId}",
+            "Internationalization:Locale=en_US"
+        };
         if (!string.IsNullOrWhiteSpace(login.LaunchArguments))
             tokens.Add(login.LaunchArguments.Trim());
 
@@ -469,13 +477,19 @@ public partial class MainWindow : Window
         }
     }
 
-    private static string GetServerDirectory(string serverName)
+    private static string GetServerDirectory(string serverName, Uri serverBaseUri)
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var safeName = new string(serverName.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch).ToArray()).Trim();
         if (string.IsNullOrWhiteSpace(safeName))
             safeName = "Server";
-        var path = Path.Combine(localAppData, "OSFRLauncher", "Servers", safeName);
+
+        var normalizedServerUrl = serverBaseUri.AbsoluteUri.TrimEnd('/').ToLowerInvariant();
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedServerUrl)))[..12];
+        var safeHost = new string(serverBaseUri.Host.Select(ch => char.IsLetterOrDigit(ch) || ch is '.' or '-' ? ch : '_').ToArray());
+        var folderName = $"{safeName} [{safeHost}] [{hash}]";
+
+        var path = Path.Combine(localAppData, "OSFRLauncher", "Servers", folderName);
         Directory.CreateDirectory(path);
         return path;
     }
@@ -568,7 +582,7 @@ public partial class MainWindow : Window
         using var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        if (response.Content.Headers.ContentLength is > maxBytes)
+        if (response.Content.Headers.ContentLength is long contentLength && contentLength > maxBytes)
             throw new InvalidDataException($"Manifest is larger than {maxBytes / 1024} KiB.");
 
         await using var stream = await response.Content.ReadAsStreamAsync();
@@ -587,7 +601,7 @@ public partial class MainWindow : Window
             memory.Write(buffer, 0, read);
         }
 
-        return System.Text.Encoding.UTF8.GetString(memory.ToArray());
+        return Encoding.UTF8.GetString(memory.ToArray());
     }
 
     private static ServerManifest ParseServerManifest(string xml)
