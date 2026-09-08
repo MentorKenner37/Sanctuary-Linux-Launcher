@@ -35,15 +35,8 @@
                 <TextBlock Text="NORTHFORGE" Foreground="#55D27E" FontWeight="Bold" />
                 <TextBlock Text="Sanctuary Linux launcher" FontSize="11" Foreground="#858585" TextWrapping="Wrap" />
               </StackPanel>
-              <Button Grid.Column="1"
-                      Width="34" Height="34"
-                      Padding="0"
-                      HorizontalContentAlignment="Center"
-                      VerticalContentAlignment="Center"
-                      VerticalAlignment="Center"
-                      Click="SettingsClicked"
-                      ToolTip.Tip="Settings">
-                <TextBlock Text="⚙" FontSize="18" Foreground="#BDBDBD" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Width="34" Height="34" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Settings" Click="SettingsClicked">
+                <TextBlock Text="⚙" FontSize="17" Foreground="#BDBDBD" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Button>
             </Grid>
           </Border>
@@ -180,8 +173,44 @@
         <StackPanel Margin="34,30" Spacing="18">
           <StackPanel Spacing="4">
             <TextBlock Text="SETTINGS" FontSize="25" FontWeight="Bold" Foreground="#F5F5F5" />
-            <TextBlock Text="Runtime settings remain installer-owned. This page shows exactly what the launcher will use." Foreground="#9E9E9E" TextWrapping="Wrap" />
+            <TextBlock Text="Launcher and runtime options used when Sanctuary starts." Foreground="#9E9E9E" TextWrapping="Wrap" />
           </StackPanel>
+
+          <Border Background="#151515" BorderBrush="#303030" BorderThickness="1" CornerRadius="10" Padding="20">
+            <StackPanel Spacing="14">
+              <TextBlock Text="GAME DISPLAY" Foreground="#55D27E" FontWeight="Bold" FontSize="12" />
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="RESOLUTION" Foreground="#8D8D8D" FontSize="10" />
+                  <ComboBox x:Name="ResolutionComboBox" SelectionChanged="GameDisplaySettingChanged">
+                    <ComboBoxItem Content="Default (game controlled)" />
+                    <ComboBoxItem Content="1280x720" />
+                    <ComboBoxItem Content="1366x768" />
+                    <ComboBoxItem Content="1600x900" />
+                    <ComboBoxItem Content="1920x1080" />
+                    <ComboBoxItem Content="2560x1440" />
+                    <ComboBoxItem Content="3840x2160" />
+                  </ComboBox>
+                  <TextBlock Text="Fixed resolutions use Proton's virtual desktop so Free Realms receives the selected display size." Foreground="#747474" FontSize="10" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="6">
+                  <TextBlock Text="FRAME RATE LIMIT" Foreground="#8D8D8D" FontSize="10" />
+                  <ComboBox x:Name="FrameRateComboBox" SelectionChanged="GameDisplaySettingChanged">
+                    <ComboBoxItem Content="Unlimited" />
+                    <ComboBoxItem Content="30 FPS" />
+                    <ComboBoxItem Content="60 FPS" />
+                    <ComboBoxItem Content="75 FPS" />
+                    <ComboBoxItem Content="120 FPS" />
+                    <ComboBoxItem Content="144 FPS" />
+                    <ComboBoxItem Content="165 FPS" />
+                    <ComboBoxItem Content="240 FPS" />
+                  </ComboBox>
+                  <TextBlock Text="The frame limiter is applied through DXVK when Sanctuary launches." Foreground="#747474" FontSize="10" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+              <TextBlock x:Name="GameDisplayStatusText" Foreground="#55D27E" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
 
           <Border Background="#151515" BorderBrush="#303030" BorderThickness="1" CornerRadius="10" Padding="20">
             <StackPanel Spacing="13">
@@ -203,7 +232,6 @@
                 </StackPanel>
               </Grid>
               <Button Content="OPEN INSTALLER FOLDER" HorizontalAlignment="Left" Click="OpenInstallerFolderClicked" />
-              <TextBlock Text="The launcher does not forward the old --fullscreen switch to Free Realms because it breaks the client's legacy Server/SessionId argument parsing." Foreground="#55D27E" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
           <TextBlock x:Name="SettingsStatusText" Foreground="#A0A0A0" TextWrapping="Wrap" />
