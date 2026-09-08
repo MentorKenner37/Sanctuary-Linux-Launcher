@@ -18,6 +18,11 @@ public partial class MainWindow
     {
         public string FrameRate { get; set; } = "Unlimited";
         public string VSync { get; set; } = "On";
+
+        // Kept only so the current launch code remains backwards compatible
+        // with old preference files. These settings are intentionally ignored.
+        public string Resolution { get => "Disabled"; set { } }
+        public string DisplayMode { get => "Disabled"; set { } }
     }
 
     private void GameDisplaySettingsLoaded(object? sender, RoutedEventArgs e)
@@ -42,9 +47,6 @@ public partial class MainWindow
 
     private void HideResolutionControl()
     {
-        // Resolution/display-mode handling is intentionally disabled for now.
-        // Keep the XAML element in place so older builds/preferences remain
-        // compatible, but remove it and its surrounding label/help text from UI.
         if (ResolutionComboBox.Parent is Control resolutionGroup)
             resolutionGroup.IsVisible = false;
 
@@ -184,13 +186,27 @@ public partial class MainWindow
         Environment.SetEnvironmentVariable("DXVK_FRAME_RATE", fps.ToString());
     }
 
+    // Compatibility shims for the current launch path. Resolution and display
+    // modes are disabled, so Gamescope can never be selected here.
+    private static bool IsBorderlessFullscreen(string value) => false;
+
+    private static (int Width, int Height) GetRequestedGameResolution(GameDisplayPreferences settings) => (0, 0);
+
+    private (int Width, int Height) GetPrimaryDisplaySize()
+    {
+        var primary = Screens.Primary?.Bounds;
+        return (primary?.Width ?? 1920, primary?.Height ?? 1080);
+    }
+
+    private static string? FindExecutableInPath(string name) => null;
+
     private void UpdateGameDisplayStatus(GameDisplayPreferences settings)
     {
         var fps = ParseFrameRate(settings.FrameRate);
         var fpsText = fps == 0 ? "unlimited FPS" : $"{fps} FPS cap";
         var vsyncText = IsVSyncEnabled(settings.VSync) ? "V-Sync on" : "V-Sync off";
 
-        GameDisplayStatusText.Text = $"Active for next launch: {fpsText} • {vsyncText}.";
+        GameDisplayStatusText.Text = $"Active for next launch: {fpsText} • {vsyncText}. Resolution and display mode are temporarily disabled.";
         GameDisplayStatusText.Foreground = Good;
     }
 }
