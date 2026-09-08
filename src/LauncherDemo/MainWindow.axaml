@@ -197,7 +197,13 @@
                   <TextBlock Text="FRAME RATE LIMIT" Foreground="#8D8D8D" FontSize="10" />
                   <ComboBox x:Name="FrameRateComboBox" SelectionChanged="GameDisplaySettingChanged">
                     <ComboBoxItem Content="Unlimited" />
+                    <ComboBoxItem Content="5 FPS" />
+                    <ComboBoxItem Content="10 FPS" />
+                    <ComboBoxItem Content="15 FPS" />
+                    <ComboBoxItem Content="20 FPS" />
+                    <ComboBoxItem Content="24 FPS" />
                     <ComboBoxItem Content="30 FPS" />
+                    <ComboBoxItem Content="45 FPS" />
                     <ComboBoxItem Content="60 FPS" />
                     <ComboBoxItem Content="75 FPS" />
                     <ComboBoxItem Content="120 FPS" />
