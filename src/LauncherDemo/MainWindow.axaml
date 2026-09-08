@@ -11,11 +11,10 @@
     <Border Grid.Column="0" Background="#101512" BorderBrush="#263129" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="Auto,*,Auto" Margin="22">
 
-        <!-- Branding: intentionally centered as one block. -->
+        <!-- Branding centered within the full sidebar width. -->
         <StackPanel Grid.Row="0"
                     Width="256"
                     HorizontalAlignment="Center"
-                    HorizontalContentAlignment="Center"
                     Spacing="4"
                     Margin="0,22,0,34">
 
@@ -35,14 +34,14 @@
           </Border>
 
           <TextBlock Text="SANCTUARY"
-                     HorizontalAlignment="Center"
+                     HorizontalAlignment="Stretch"
                      TextAlignment="Center"
                      FontSize="28"
                      FontWeight="SemiBold"
                      Foreground="White" />
 
           <TextBlock Text="LINUX LAUNCHER"
-                     HorizontalAlignment="Center"
+                     HorizontalAlignment="Stretch"
                      TextAlignment="Center"
                      FontSize="15"
                      FontWeight="SemiBold"
