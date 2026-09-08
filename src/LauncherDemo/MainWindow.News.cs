@@ -133,7 +133,9 @@ public partial class MainWindow
             FontSize = 11,
             Foreground = Muted,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 360
+            MaxWidth = 360,
+            MaxHeight = 34,
+            ClipToBounds = true
         };
 
         var modeLabel = new TextBlock
@@ -269,13 +271,26 @@ public partial class MainWindow
         {
             await JoinCurrentServerAsync();
             var description = ServerDescriptionText.Text?.Trim();
-            serverDescription.Text = string.IsNullOrWhiteSpace(description)
-                ? "No server description provided."
-                : description;
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                serverDescription.Text = "No server description provided.";
+                ToolTip.SetTip(serverDescription, null);
+            }
+            else
+            {
+                var normalized = string.Join(' ', description
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+                const int previewLimit = 150;
+                serverDescription.Text = normalized.Length > previewLimit
+                    ? normalized[..previewLimit].TrimEnd() + "…"
+                    : normalized;
+                ToolTip.SetTip(serverDescription, normalized);
+            }
         }
         catch
         {
             serverDescription.Text = "Server description unavailable.";
+            ToolTip.SetTip(serverDescription, null);
         }
     }
 }
