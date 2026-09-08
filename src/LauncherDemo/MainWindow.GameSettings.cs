@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 
 namespace OSFR.Linux.LauncherDemo;
 
@@ -9,6 +12,10 @@ public partial class MainWindow
 {
     private bool _gameDisplaySettingsLoaded;
     private bool _loadingGameDisplaySettings;
+    private bool _advancedDisplayControlsAdded;
+
+    private readonly ComboBox _displayModeComboBox = new();
+    private readonly ComboBox _vSyncComboBox = new();
 
     private string GameDisplayPreferencesPath => Path.Combine(_launcherStateDirectory, "game-display.json");
 
@@ -27,12 +34,13 @@ public partial class MainWindow
 
         _gameDisplaySettingsLoaded = true;
         _loadingGameDisplaySettings = true;
+        EnsureAdvancedDisplayControls();
 
         var settings = LoadGameDisplayPreferences();
         SelectComboValue(ResolutionComboBox, settings.Resolution, "Default (game controlled)");
         SelectComboValue(FrameRateComboBox, settings.FrameRate, "Unlimited");
-        SelectComboValue(DisplayModeComboBox, settings.DisplayMode, "Borderless Fullscreen");
-        SelectComboValue(VSyncComboBox, settings.VSync, "On");
+        SelectComboValue(_displayModeComboBox, settings.DisplayMode, "Borderless Fullscreen");
+        SelectComboValue(_vSyncComboBox, settings.VSync, "On");
 
         _loadingGameDisplaySettings = false;
         ApplyFrameRateLimit(settings.FrameRate);
@@ -41,6 +49,74 @@ public partial class MainWindow
             await ApplyResolutionAsync(settings.Resolution);
 
         UpdateGameDisplayStatus(settings);
+    }
+
+    private void EnsureAdvancedDisplayControls()
+    {
+        if (_advancedDisplayControlsAdded)
+            return;
+
+        if (SettingsPage.Content is not StackPanel settingsRoot)
+            return;
+
+        var gameDisplayBorder = settingsRoot.Children.OfType<Border>().FirstOrDefault();
+        if (gameDisplayBorder?.Child is not StackPanel gameDisplayStack)
+            return;
+
+        _advancedDisplayControlsAdded = true;
+
+        _displayModeComboBox.Items.Add(new ComboBoxItem { Content = "Borderless Fullscreen" });
+        _displayModeComboBox.Items.Add(new ComboBoxItem { Content = "Windowed" });
+        _displayModeComboBox.SelectionChanged += GameDisplaySettingChanged;
+
+        _vSyncComboBox.Items.Add(new ComboBoxItem { Content = "On" });
+        _vSyncComboBox.Items.Add(new ComboBoxItem { Content = "Off" });
+        _vSyncComboBox.SelectionChanged += GameDisplaySettingChanged;
+
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 14,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+
+        var displayModeStack = new StackPanel { Spacing = 6 };
+        displayModeStack.Children.Add(new TextBlock
+        {
+            Text = "DISPLAY MODE",
+            Foreground = new SolidColorBrush(Color.Parse("#8D8D8D")),
+            FontSize = 10
+        });
+        displayModeStack.Children.Add(_displayModeComboBox);
+        displayModeStack.Children.Add(new TextBlock
+        {
+            Text = "Borderless Fullscreen keeps Free Realms windowed internally while filling the display.",
+            Foreground = new SolidColorBrush(Color.Parse("#747474")),
+            FontSize = 10,
+            TextWrapping = TextWrapping.Wrap
+        });
+        row.Children.Add(displayModeStack);
+
+        var vsyncStack = new StackPanel { Spacing = 6 };
+        vsyncStack.Children.Add(new TextBlock
+        {
+            Text = "V-SYNC",
+            Foreground = new SolidColorBrush(Color.Parse("#8D8D8D")),
+            FontSize = 10
+        });
+        vsyncStack.Children.Add(_vSyncComboBox);
+        vsyncStack.Children.Add(new TextBlock
+        {
+            Text = "Synchronizes presentation to the display refresh cycle to reduce tearing.",
+            Foreground = new SolidColorBrush(Color.Parse("#747474")),
+            FontSize = 10,
+            TextWrapping = TextWrapping.Wrap
+        });
+        Grid.SetColumn(vsyncStack, 1);
+        row.Children.Add(vsyncStack);
+
+        var insertAt = Math.Max(0, gameDisplayStack.Children.Count - 1);
+        gameDisplayStack.Children.Insert(insertAt, row);
     }
 
     private async void GameDisplaySettingChanged(object? sender, SelectionChangedEventArgs e)
@@ -52,8 +128,8 @@ public partial class MainWindow
         {
             Resolution = SelectedComboValue(ResolutionComboBox, "Default (game controlled)"),
             FrameRate = SelectedComboValue(FrameRateComboBox, "Unlimited"),
-            DisplayMode = SelectedComboValue(DisplayModeComboBox, "Borderless Fullscreen"),
-            VSync = SelectedComboValue(VSyncComboBox, "On")
+            DisplayMode = SelectedComboValue(_displayModeComboBox, "Borderless Fullscreen"),
+            VSync = SelectedComboValue(_vSyncComboBox, "On")
         };
 
         SaveGameDisplayPreferences(settings);
@@ -162,6 +238,25 @@ public partial class MainWindow
             && int.TryParse(parts[1], out height)
             && width >= 640
             && height >= 480;
+    }
+
+    private static string? FindExecutableInPath(string name)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                var candidate = Path.Combine(directory, name);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
     }
 
     private async Task ApplyResolutionAsync(string value)
