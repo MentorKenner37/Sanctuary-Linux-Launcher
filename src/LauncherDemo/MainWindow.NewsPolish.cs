@@ -9,6 +9,7 @@ namespace OSFR.Linux.LauncherDemo;
 public partial class MainWindow
 {
     private bool _newsPolishAttached;
+    private bool _developmentFeedToggleAttached;
     private readonly HashSet<TextBlock> _polishedNewsTitles = new();
 
     private void AttachNewsPolish()
@@ -17,6 +18,7 @@ public partial class MainWindow
             return;
 
         _newsPolishAttached = true;
+        AttachDevelopmentFeedToggle();
 
         void Polish()
         {
@@ -96,6 +98,45 @@ public partial class MainWindow
             _developmentNewsPanel.LayoutUpdated += (_, _) => Polish();
 
         Polish();
+    }
+
+    private void AttachDevelopmentFeedToggle()
+    {
+        if (_developmentFeedToggleAttached || _developmentNewsPanel is null)
+            return;
+
+        var sectionStack = _developmentNewsPanel
+            .GetVisualAncestors()
+            .OfType<StackPanel>()
+            .FirstOrDefault(stack => stack.Children.Contains(_developmentNewsPanel));
+
+        if (sectionStack is null)
+            return;
+
+        _developmentFeedToggleAttached = true;
+        _developmentNewsPanel.IsVisible = false;
+
+        var toggle = new Button
+        {
+            Content = "SHOW DEVELOPMENT FEED  ▾",
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+            Padding = new Thickness(11, 5),
+            FontSize = 10,
+            MinHeight = 0,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+
+        toggle.Click += (_, _) =>
+        {
+            var expanded = !_developmentNewsPanel.IsVisible;
+            _developmentNewsPanel.IsVisible = expanded;
+            toggle.Content = expanded
+                ? "HIDE DEVELOPMENT FEED  ▴"
+                : "SHOW DEVELOPMENT FEED  ▾";
+        };
+
+        var contentIndex = sectionStack.Children.IndexOf(_developmentNewsPanel);
+        sectionStack.Children.Insert(Math.Max(0, contentIndex), toggle);
     }
 
     private void PolishNewsTitle(TextBlock textBlock)
