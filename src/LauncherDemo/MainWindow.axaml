@@ -169,7 +169,7 @@
         </StackPanel>
       </ScrollViewer>
 
-      <ScrollViewer x:Name="SettingsPage" IsVisible="False">
+      <ScrollViewer x:Name="SettingsPage" IsVisible="False" Loaded="GameDisplaySettingsLoaded">
         <StackPanel Margin="34,30" Spacing="18">
           <StackPanel Spacing="4">
             <TextBlock Text="SETTINGS" FontSize="25" FontWeight="Bold" Foreground="#F5F5F5" />
