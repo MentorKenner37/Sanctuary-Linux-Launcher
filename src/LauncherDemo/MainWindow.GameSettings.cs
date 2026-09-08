@@ -97,7 +97,7 @@ public partial class MainWindow
         displayModeStack.Children.Add(_displayModeComboBox);
         displayModeStack.Children.Add(new TextBlock
         {
-            Text = "Borderless Fullscreen uses Gamescope when available. Free Realms stays windowed internally while Gamescope fills the display.",
+            Text = "Borderless Fullscreen uses Gamescope. Windowed launches directly through Proton so the window can be resized and maximized normally.",
             Foreground = new SolidColorBrush(Color.Parse("#747474")),
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap
@@ -242,12 +242,16 @@ public partial class MainWindow
 
     private (int Width, int Height) GetRequestedGameResolution(GameDisplayPreferences settings)
     {
+        // Windowed mode intentionally bypasses Gamescope so Cinnamon/Wine owns
+        // the real top-level window. That lets maximize/restore resize the game
+        // instead of scaling it inside a fixed Gamescope canvas with letterboxing.
+        if (!IsBorderlessFullscreen(settings.DisplayMode))
+            return (0, 0);
+
         if (TryParseResolution(settings.Resolution, out var width, out var height))
             return (width, height);
 
-        return IsBorderlessFullscreen(settings.DisplayMode)
-            ? GetPrimaryDisplaySize()
-            : (0, 0);
+        return GetPrimaryDisplaySize();
     }
 
     private static string? FindExecutableInPath(string name)
@@ -347,14 +351,18 @@ public partial class MainWindow
     {
         var fps = ParseFrameRate(settings.FrameRate);
         var fpsText = fps == 0 ? "unlimited FPS" : $"{fps} FPS cap";
-        var resolutionText = string.Equals(settings.Resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase)
-            ? IsBorderlessFullscreen(settings.DisplayMode) ? "native display resolution" : "game-controlled resolution"
-            : settings.Resolution;
+        var resolutionText = IsBorderlessFullscreen(settings.DisplayMode)
+            ? string.Equals(settings.Resolution, "Default (game controlled)", StringComparison.OrdinalIgnoreCase)
+                ? "native display resolution"
+                : settings.Resolution
+            : "resizable window";
         var vsyncText = IsVSyncEnabled(settings.VSync) ? "V-Sync on" : "V-Sync off";
         var gamescopePath = FindExecutableInPath("gamescope");
-        var gamescopeText = gamescopePath is null
-            ? "Gamescope not detected; borderless falls back to normal windowed mode"
-            : "Gamescope ready";
+        var gamescopeText = IsBorderlessFullscreen(settings.DisplayMode)
+            ? gamescopePath is null
+                ? "Gamescope not detected; borderless falls back to normal windowed mode"
+                : "Gamescope ready"
+            : "direct Proton window";
 
         GameDisplayStatusText.Text = $"Active for next launch: {settings.DisplayMode} • {resolutionText} • {fpsText} • {vsyncText} • {gamescopeText}.";
         GameDisplayStatusText.Foreground = gamescopePath is null && IsBorderlessFullscreen(settings.DisplayMode) ? Muted : Good;
