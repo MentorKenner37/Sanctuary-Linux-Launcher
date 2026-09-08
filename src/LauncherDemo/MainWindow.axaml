@@ -2,107 +2,279 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="OSFR.Linux.LauncherDemo.MainWindow"
         Title="Sanctuary Linux Launcher"
-        Width="1180" Height="760"
-        MinWidth="980" MinHeight="640"
-        Background="#0B0E0C">
+        Width="1400" Height="900"
+        MinWidth="1180" MinHeight="720"
+        Background="#080C0A">
 
-  <Grid ColumnDefinitions="300,*">
-    <!-- Sidebar -->
-    <Border Grid.Column="0" Background="#101512" BorderBrush="#263129" BorderThickness="0,0,1,0">
-      <Grid RowDefinitions="Auto,*,Auto" Margin="22">
+  <Window.Styles>
+    <Style Selector="TextBlock">
+      <Setter Property="FontFamily" Value="Inter" />
+      <Setter Property="Foreground" Value="#E7ECE8" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="FontFamily" Value="Inter" />
+      <Setter Property="Foreground" Value="#E7ECE8" />
+      <Setter Property="Background" Value="#101512" />
+      <Setter Property="BorderBrush" Value="#2A332D" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="16,10" />
+    </Style>
+    <Style Selector="ComboBox">
+      <Setter Property="FontFamily" Value="Inter" />
+      <Setter Property="Foreground" Value="#E7ECE8" />
+      <Setter Property="Background" Value="#101512" />
+      <Setter Property="BorderBrush" Value="#2A332D" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Padding" Value="12,8" />
+    </Style>
+  </Window.Styles>
 
-        <!-- Branding centered within the full sidebar width. -->
-        <StackPanel Grid.Row="0"
-                    Width="256"
-                    HorizontalAlignment="Center"
-                    Spacing="4"
-                    Margin="0,22,0,34">
+  <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="260,*">
 
-          <Border Width="88" Height="88"
-                  HorizontalAlignment="Center"
-                  CornerRadius="44"
-                  BorderBrush="#35D06F" BorderThickness="2"
-                  Background="#151D18"
-                  Margin="0,0,0,14">
-            <TextBlock Text="S"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       TextAlignment="Center"
-                       FontSize="45"
-                       FontWeight="Bold"
-                       Foreground="#35D06F" />
+    <!-- top title strip -->
+    <Border Grid.Row="0" Grid.ColumnSpan="2" Height="52"
+            Background="#0A0F0C" BorderBrush="#252D28" BorderThickness="0,0,0,1">
+      <TextBlock Text="Sanctuary Linux Launcher"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 FontSize="17" FontWeight="SemiBold" />
+    </Border>
+
+    <!-- SIDEBAR -->
+    <Border Grid.Row="1" Grid.Column="0"
+            Background="#0D1210" BorderBrush="#252D28" BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="18,20,18,18">
+
+        <!-- Centered branding only: original layout, requested alignment fix. -->
+        <StackPanel Grid.Row="0" HorizontalAlignment="Stretch" Spacing="3" Margin="0,0,0,26">
+          <Border Width="82" Height="82" HorizontalAlignment="Center"
+                  CornerRadius="41" Background="#17151D" BorderBrush="#8B63FF" BorderThickness="2"
+                  Margin="0,0,0,12">
+            <TextBlock Text="♣" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       TextAlignment="Center" FontSize="42" FontWeight="Bold" Foreground="#B79BFF" />
           </Border>
-
-          <TextBlock Text="SANCTUARY"
-                     HorizontalAlignment="Stretch"
-                     TextAlignment="Center"
-                     FontSize="28"
-                     FontWeight="SemiBold"
-                     Foreground="White" />
-
-          <TextBlock Text="LINUX LAUNCHER"
-                     HorizontalAlignment="Stretch"
-                     TextAlignment="Center"
-                     FontSize="15"
-                     FontWeight="SemiBold"
-                     Foreground="#35D06F" />
+          <TextBlock Text="SANCTUARY" HorizontalAlignment="Center" TextAlignment="Center"
+                     FontSize="26" FontWeight="Bold" Foreground="#F4F6F4" />
+          <TextBlock Text="LINUX LAUNCHER" HorizontalAlignment="Center" TextAlignment="Center"
+                     FontSize="14" FontWeight="SemiBold" Foreground="#64D82E" />
+          <Border HorizontalAlignment="Center" Margin="0,8,0,0" Padding="9,3"
+                  CornerRadius="12" BorderBrush="#407723" BorderThickness="1" Background="#10190D">
+            <TextBlock Text="BETA" FontSize="10" FontWeight="Bold" Foreground="#64D82E" />
+          </Border>
         </StackPanel>
 
-        <StackPanel Grid.Row="1" Spacing="8">
-          <Button Content="Home" HorizontalContentAlignment="Left" Padding="16,12" />
-          <Button Content="Servers" HorizontalContentAlignment="Left" Padding="16,12" />
-          <Button Content="Settings" HorizontalContentAlignment="Left" Padding="16,12" />
-          <Button Content="About" HorizontalContentAlignment="Left" Padding="16,12" />
+        <!-- nav -->
+        <StackPanel Grid.Row="1" Spacing="7">
+          <Button Height="48" BorderBrush="#64D82E" BorderThickness="1.5" Background="#121A13">
+            <Grid ColumnDefinitions="36,*">
+              <TextBlock Text="⌂" FontSize="24" Foreground="#64D82E" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="HOME" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </Grid>
+          </Button>
+          <Button Height="44" Background="Transparent" BorderBrush="Transparent">
+            <Grid ColumnDefinitions="36,*">
+              <TextBlock Text="◎" FontSize="22" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="SERVERS" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button Height="44" Background="Transparent" BorderBrush="Transparent">
+            <Grid ColumnDefinitions="36,*">
+              <TextBlock Text="▤" FontSize="20" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="NEWS" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button Height="44" Background="Transparent" BorderBrush="Transparent">
+            <Grid ColumnDefinitions="36,*">
+              <TextBlock Text="⚙" FontSize="20" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="SETTINGS" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button Height="44" Background="Transparent" BorderBrush="Transparent">
+            <Grid ColumnDefinitions="36,*">
+              <TextBlock Text="⌁" FontSize="21" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="DIAGNOSTICS" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button Height="44" Background="Transparent" BorderBrush="Transparent">
+            <Grid ColumnDefinitions="36,*">
+              <TextBlock Text="ⓘ" FontSize="20" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="ABOUT" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
         </StackPanel>
 
-        <StackPanel Grid.Row="2" Spacing="5" HorizontalAlignment="Center">
-          <TextBlock Text="NORTHFORGE" HorizontalAlignment="Center" TextAlignment="Center"
-                     FontWeight="SemiBold" Foreground="#35D06F" />
-          <TextBlock Text="SANCTUARY NETWORK" HorizontalAlignment="Center" TextAlignment="Center"
-                     FontSize="11" Foreground="#89948D" />
-        </StackPanel>
+        <Border Grid.Row="3" BorderBrush="#27302A" BorderThickness="0,1,0,0" Margin="0,18,0,0" Padding="10,18,10,14">
+          <StackPanel Spacing="10">
+            <TextBlock Text="LAUNCHER VERSION" Foreground="#64D82E" FontSize="12" FontWeight="Bold" />
+            <TextBlock Text="1.0.0-beta.2+55e3e05" FontSize="13" />
+            <TextBlock Text="✓  You're up to date" FontSize="12" Foreground="#B9C1BC" />
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="4" BorderBrush="#27302A" BorderThickness="0,1,0,0" Padding="10,16,10,0">
+          <StackPanel Spacing="9">
+            <TextBlock Text="QUICK ACTIONS" Foreground="#64D82E" FontSize="12" FontWeight="Bold" />
+            <Button Content="⇩   Check for Updates" HorizontalContentAlignment="Left" />
+            <Button Content="□   Open Install Folder" HorizontalContentAlignment="Left" />
+          </StackPanel>
+        </Border>
       </Grid>
     </Border>
 
-    <!-- Reconstructed main shell. Launcher behavior will be restored incrementally. -->
-    <ScrollViewer Grid.Column="1">
-      <StackPanel Margin="42,34" Spacing="24">
-        <StackPanel Spacing="4">
-          <TextBlock Text="Welcome to Sanctuary" FontSize="34" FontWeight="SemiBold" Foreground="White" />
-          <TextBlock Text="Select a server and launch Free Realms." FontSize="15" Foreground="#A5AEA8" />
-        </StackPanel>
+    <!-- MAIN -->
+    <ScrollViewer Grid.Row="1" Grid.Column="1">
+      <StackPanel Margin="14" Spacing="12">
 
-        <TextBlock Text="1. SELECT A SERVER" FontSize="15" FontWeight="Bold" Foreground="#35D06F" />
-        <Border Padding="20" CornerRadius="10" Background="#121815" BorderBrush="#29352D" BorderThickness="1">
-          <Grid ColumnDefinitions="*,Auto">
-            <StackPanel Spacing="5">
-              <TextBlock Text="OSFR Public Server" FontSize="20" FontWeight="SemiBold" Foreground="White" />
-              <TextBlock Text="● Online" Foreground="#35D06F" />
-              <TextBlock Text="Server status recovery in progress" Foreground="#89948D" />
+        <!-- server status card -->
+        <Border HorizontalAlignment="Right" Width="445" Padding="14,11"
+                Background="#0E1310" BorderBrush="#29322C" BorderThickness="1" CornerRadius="7">
+          <Grid ColumnDefinitions="22,*,Auto">
+            <TextBlock Text="●" Foreground="#64D82E" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Text="Sanctuary Public Server" FontSize="14" FontWeight="SemiBold" />
+              <TextBlock Text="147 players online" FontSize="12" Foreground="#64D82E" />
             </StackPanel>
-            <Button Grid.Column="1" Content="Select" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="View News" Padding="18,8" />
           </Grid>
         </Border>
 
-        <TextBlock Text="2. CLIENT STATUS" FontSize="15" FontWeight="Bold" Foreground="#35D06F" />
-        <Border Padding="20" CornerRadius="10" Background="#121815" BorderBrush="#29352D" BorderThickness="1">
-          <Grid ColumnDefinitions="*,*">
-            <StackPanel Spacing="4">
-              <TextBlock Text="Client verification" FontWeight="SemiBold" Foreground="White" />
-              <TextBlock Text="Recovery implementation pending" Foreground="#89948D" />
+        <Border Background="#0C110E" BorderBrush="#28312B" BorderThickness="1" CornerRadius="6">
+          <StackPanel>
+            <!-- 1 SERVER -->
+            <StackPanel Margin="16,16,16,18" Spacing="12">
+              <TextBlock Text="1. SELECT A SERVER" Foreground="#64D82E" FontSize="14" FontWeight="Bold" />
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <Border Padding="16,12" Background="#101512" BorderBrush="#2C362F" BorderThickness="1" CornerRadius="5">
+                  <Grid ColumnDefinitions="*,Auto,34">
+                    <TextBlock Text="OSFR Public Server" FontSize="16" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="147 players online" Foreground="#64D82E" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <TextBlock Grid.Column="2" Text="⌄" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                  </Grid>
+                </Border>
+                <Button Grid.Column="1" Content="Manage Servers" Padding="20,10" />
+              </Grid>
             </StackPanel>
-            <StackPanel Grid.Column="1" Spacing="4">
-              <TextBlock Text="Proton launcher" FontWeight="SemiBold" Foreground="White" />
-              <TextBlock Text="Recovery implementation pending" Foreground="#89948D" />
+
+            <Border BorderBrush="#27302A" BorderThickness="0,1,0,0" />
+
+            <!-- 2 METHOD -->
+            <StackPanel Margin="16,16,16,18" Spacing="12">
+              <TextBlock Text="2. LAUNCH METHOD" Foreground="#64D82E" FontSize="14" FontWeight="Bold" />
+              <Border Padding="13" Background="#101512" BorderBrush="#2C362F" BorderThickness="1" CornerRadius="5">
+                <Grid ColumnDefinitions="60,*,Auto">
+                  <Border Width="48" Height="58" CornerRadius="5" Background="#151A17" BorderBrush="#303A33" BorderThickness="1">
+                    <TextBlock Text="🍷" FontSize="28" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="5">
+                    <TextBlock Text="Proton GE 10.30 (Selected by Installer)" FontSize="15" />
+                    <TextBlock Text="Prefix: /home/mentorkenner/.local/share/Sanctuary/prefix" FontSize="12" Foreground="#A3AAA5" />
+                  </StackPanel>
+                  <Button Grid.Column="2" Content="Change" VerticalAlignment="Center" />
+                </Grid>
+              </Border>
             </StackPanel>
-          </Grid>
+
+            <Border BorderBrush="#27302A" BorderThickness="0,1,0,0" />
+
+            <!-- 3 SETTINGS -->
+            <StackPanel Margin="16,16,16,18" Spacing="12">
+              <TextBlock Text="3. LAUNCH SETTINGS" Foreground="#64D82E" FontSize="14" FontWeight="Bold" />
+              <Grid ColumnDefinitions="*,320" ColumnSpacing="14">
+                <Border Padding="14" Background="#101512" BorderBrush="#2C362F" BorderThickness="1" CornerRadius="5">
+                  <Grid ColumnDefinitions="*,*,*" ColumnSpacing="14">
+                    <StackPanel Spacing="7">
+                      <TextBlock Text="Graphics Backend" FontSize="12" />
+                      <ComboBox SelectedIndex="0">
+                        <ComboBoxItem Content="DXVK (Vulkan)" />
+                      </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="7">
+                      <TextBlock Text="Display Mode" FontSize="12" />
+                      <ComboBox SelectedIndex="0">
+                        <ComboBoxItem Content="Windowed" />
+                      </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="7">
+                      <TextBlock Text="Resolution" FontSize="12" />
+                      <ComboBox SelectedIndex="0">
+                        <ComboBoxItem Content="1920 x 1080" />
+                      </ComboBox>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+                <Border Grid.Column="1" Padding="15" Background="#101512" BorderBrush="#2C362F" BorderThickness="1" CornerRadius="5">
+                  <StackPanel Spacing="14">
+                    <CheckBox Content="Enable FPS Limit" IsChecked="False" />
+                    <Grid ColumnDefinitions="*,Auto">
+                      <Slider Minimum="30" Maximum="240" Value="60" IsEnabled="False" />
+                      <TextBlock Grid.Column="1" Text="60 FPS" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#A3AAA5" />
+                    </Grid>
+                    <CheckBox Content="Launch on system start" IsChecked="False" />
+                  </StackPanel>
+                </Border>
+              </Grid>
+            </StackPanel>
+
+            <Border BorderBrush="#27302A" BorderThickness="0,1,0,0" />
+
+            <!-- 4 LAUNCH -->
+            <StackPanel Margin="16,16,16,16" Spacing="12">
+              <TextBlock Text="4. LAUNCH" Foreground="#64D82E" FontSize="14" FontWeight="Bold" />
+              <Grid ColumnDefinitions="*,170" ColumnSpacing="16">
+                <Button Height="62" Background="#102417" BorderBrush="#64D82E" BorderThickness="1.5" CornerRadius="6"
+                        Content="▶   LAUNCH GAME" FontSize="20" FontWeight="Bold" Foreground="#64D82E" />
+                <Button Grid.Column="1" Content="⚙  Advanced  ⌄" />
+              </Grid>
+            </StackPanel>
+          </StackPanel>
         </Border>
 
-        <TextBlock Text="3. LAUNCH" FontSize="15" FontWeight="Bold" Foreground="#35D06F" />
-        <Button Height="76" Content="▶   LAUNCH SANCTUARY"
-                FontSize="22" FontWeight="Bold"
-                Background="#219653" Foreground="White" />
+        <!-- bottom cards -->
+        <Grid ColumnDefinitions="1.1*,1*" ColumnSpacing="12">
+          <Border Padding="16" Background="#0C110E" BorderBrush="#28312B" BorderThickness="1" CornerRadius="6">
+            <StackPanel Spacing="13">
+              <TextBlock Text="STATUS" Foreground="#64D82E" FontSize="13" FontWeight="Bold" />
+              <Grid ColumnDefinitions="*,*,*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="9">
+                <TextBlock Text="●  Proton" Foreground="#E7ECE8" /><TextBlock Grid.Column="1" Text="GE 10.30" Foreground="#D4D9D5" />
+                <TextBlock Grid.Row="1" Text="●  DXVK" /><TextBlock Grid.Row="1" Grid.Column="1" Text="v2.4" />
+                <TextBlock Grid.Row="2" Text="●  Vulkan" /><TextBlock Grid.Row="2" Grid.Column="1" Text="Available" />
+                <TextBlock Grid.Column="2" Text="●  Wine Prefix" /><TextBlock Grid.Column="3" Text="Ready" />
+                <TextBlock Grid.Row="1" Grid.Column="2" Text="●  Client Files" /><TextBlock Grid.Row="1" Grid.Column="3" Text="Up to date" />
+                <TextBlock Grid.Row="2" Grid.Column="2" Text="●  Server Connection" /><TextBlock Grid.Row="2" Grid.Column="3" Text="Secure (HTTPS)" FontSize="11" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Column="1" Padding="16" Background="#0C110E" BorderBrush="#28312B" BorderThickness="1" CornerRadius="6">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="NEWS" Foreground="#64D82E" FontSize="13" FontWeight="Bold" />
+                <TextBlock Grid.Column="1" Text="View All" Foreground="#64D82E" FontSize="11" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                <TextBlock Text="•  Weekend Bonus XP Event" /><TextBlock Grid.Column="1" Text="Aug 25, 2025" Foreground="#A1A8A3" />
+                <TextBlock Grid.Row="1" Text="•  New Cosmetic Items Added!" /><TextBlock Grid.Row="1" Grid.Column="1" Text="Aug 21, 2025" Foreground="#A1A8A3" />
+                <TextBlock Grid.Row="2" Text="•  Server Maintenance – Aug 27" /><TextBlock Grid.Row="2" Grid.Column="1" Text="Aug 20, 2025" Foreground="#A1A8A3" />
+                <TextBlock Grid.Row="3" Text="•  Check Out Our New Website" /><TextBlock Grid.Row="3" Grid.Column="1" Text="Aug 18, 2025" Foreground="#A1A8A3" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </Grid>
       </StackPanel>
     </ScrollViewer>
+
+    <!-- FOOTER -->
+    <Border Grid.Row="2" Grid.ColumnSpan="2" Height="55" Background="#0A0F0C"
+            BorderBrush="#252D28" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,Auto" Margin="28,0">
+        <TextBlock Text="♙  Secure Connection (HTTPS)" VerticalAlignment="Center" Foreground="#C8CFCA" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <TextBlock Text="Sanctuary Public Server" />
+          <TextBlock Text="●" Foreground="#64D82E" />
+          <TextBlock Text="147 players online" Foreground="#A7AEA9" />
+        </StackPanel>
+      </Grid>
+    </Border>
   </Grid>
 </Window>
