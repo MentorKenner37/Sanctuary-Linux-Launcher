@@ -45,9 +45,7 @@ public partial class MainWindow
             {
                 FileName = "python3",
                 WorkingDirectory = LocalManifestHostDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
+                UseShellExecute = false
             };
             startInfo.ArgumentList.Add(scriptPath);
             startInfo.ArgumentList.Add(certPath);
@@ -56,6 +54,13 @@ public partial class MainWindow
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             if (!process.Start())
                 throw new InvalidOperationException("Could not start the local manifest host.");
+
+            if (process.WaitForExit(300))
+            {
+                var exitCode = process.ExitCode;
+                process.Dispose();
+                throw new InvalidOperationException($"Local manifest host exited immediately with code {exitCode}. Port 8443 may already be in use.");
+            }
 
             process.Exited += (_, _) =>
             {
