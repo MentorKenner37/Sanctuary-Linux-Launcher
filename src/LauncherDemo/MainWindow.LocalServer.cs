@@ -36,7 +36,7 @@ public partial class MainWindow
         var tabControl = new TabControl
         {
             Margin = new Thickness(0),
-            Items = new object[]
+            ItemsSource = new object[]
             {
                 new TabItem
                 {
