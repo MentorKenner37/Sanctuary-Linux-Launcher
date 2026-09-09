@@ -17,6 +17,7 @@ public partial class MainWindow
         base.OnOpened(e);
         InitializeNewsHome();
         InitializeLocalServerTab();
+        InitializeLocalAssetPreloaderUi();
         StartLocalManifestHost();
         StartLocalServerAutomationMonitor();
         _ = RefreshLocalServerStatusAsync();
