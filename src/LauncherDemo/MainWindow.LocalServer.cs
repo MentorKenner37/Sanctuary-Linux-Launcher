@@ -24,13 +24,6 @@ public partial class MainWindow
     private Button? _localServerStopButton;
     private bool _localServerTabInitialized;
 
-    protected override void OnOpened(EventArgs e)
-    {
-        base.OnOpened(e);
-        InitializeLocalServerTab();
-        _ = RefreshLocalServerStatusAsync();
-    }
-
     private void InitializeLocalServerTab()
     {
         if (_localServerTabInitialized)
