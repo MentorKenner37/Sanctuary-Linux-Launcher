@@ -6,7 +6,7 @@ namespace OSFR.Linux.LauncherDemo;
 public partial class MainWindow
 {
     private static readonly Uri OfficialClientBaseUri = new("https://opensourcefreerealms.com/");
-    private const int LocalClientDownloadConcurrency = 8;
+    private const int LocalClientDownloadConcurrency = 30;
 
     private string LocalManifestHostDirectory => Path.Combine(_localServerRoot, "ManifestHost");
     private string LocalManifestClientDirectory => Path.Combine(LocalManifestHostDirectory, "client");
