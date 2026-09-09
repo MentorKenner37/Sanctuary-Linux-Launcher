@@ -22,6 +22,7 @@ public partial class MainWindow
     private CancellationTokenSource? _assetPreloadCancellation;
 
     private string LocalAssetPreloadStatePath => Path.Combine(LocalAssetProxyDirectory, "preload-complete.txt");
+    private string LocalAssetPreloadFailureLogPath => Path.Combine(LocalAssetProxyDirectory, "preload-failures.log");
 
     private void InitializeLocalAssetPreloaderUi()
     {
@@ -121,6 +122,7 @@ public partial class MainWindow
             var failed = 0;
             long downloadedBytes = 0;
             var sync = new object();
+            var firstFailures = new List<string>(12);
 
             SetAssetPreloadStatus(alreadyDone > 0
                 ? $"Resuming at {alreadyDone:N0}/{assets.Count:N0}. Downloading with {AssetPreloadConcurrency} workers…"
@@ -128,6 +130,8 @@ public partial class MainWindow
 
             await using var stateStream = new FileStream(LocalAssetPreloadStatePath, FileMode.Append, FileAccess.Write, FileShare.Read);
             await using var stateWriter = new StreamWriter(stateStream) { AutoFlush = false };
+            await using var failureStream = new FileStream(LocalAssetPreloadFailureLogPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            await using var failureWriter = new StreamWriter(failureStream) { AutoFlush = true };
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 
             await Parallel.ForEachAsync(pending, new ParallelOptions
@@ -137,6 +141,7 @@ public partial class MainWindow
             }, async (request, cancellationToken) =>
             {
                 var ok = false;
+                string? failureDetail = null;
                 try
                 {
                     using var response = await client.GetAsync(
@@ -150,12 +155,20 @@ public partial class MainWindow
                         await body.CopyToAsync(Stream.Null, cancellationToken);
                         ok = true;
                     }
+                    else
+                    {
+                        failureDetail = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {request.Path}";
+                    }
                 }
-                catch when (!cancellationToken.IsCancellationRequested) { }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    failureDetail = $"{ex.GetType().Name}: {request.Path} — {ex.Message}";
+                }
 
                 int current;
                 int snapshotFailed;
                 long snapshotBytes;
+                string[] snapshotFailures;
                 lock (sync)
                 {
                     finished++;
@@ -168,19 +181,29 @@ public partial class MainWindow
                     else
                     {
                         failed++;
+                        failureDetail ??= $"Unknown failure: {request.Path}";
+                        failureWriter.WriteLine(failureDetail);
+                        if (firstFailures.Count < 12)
+                            firstFailures.Add(failureDetail);
                     }
                     current = finished;
                     snapshotFailed = failed;
                     snapshotBytes = downloadedBytes;
+                    snapshotFailures = firstFailures.Take(3).ToArray();
                 }
 
-                if (current % 250 == 0 || current == assets.Count)
+                if (current % 100 == 0 || current == assets.Count || (snapshotFailed > 0 && current <= alreadyDone + 100))
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (_assetPreloadProgress is not null)
                             _assetPreloadProgress.Value = (double)current / assets.Count;
-                        SetAssetPreloadStatus($"{current:N0}/{assets.Count:N0} ({(double)current / assets.Count:P1}) • cached this run: {FormatBytes(snapshotBytes)} • failed: {snapshotFailed:N0}");
+
+                        var failurePreview = snapshotFailures.Length == 0
+                            ? string.Empty
+                            : "\nFirst failures:\n" + string.Join("\n", snapshotFailures);
+
+                        SetAssetPreloadStatus($"{current:N0}/{assets.Count:N0} ({(double)current / assets.Count:P1}) • cached this run: {FormatBytes(snapshotBytes)} • failed: {snapshotFailed:N0}{failurePreview}");
                     });
                 }
             });
@@ -188,13 +211,13 @@ public partial class MainWindow
             await stateWriter.FlushAsync(token);
             SetAssetPreloadStatus(failed == 0
                 ? $"PRELOAD COMPLETE — {succeeded:N0}/{assets.Count:N0} assets are marked cached."
-                : $"Preload finished — {succeeded:N0}/{assets.Count:N0} cached, {failed:N0} failed. Press PRELOAD ALL ASSETS again to retry failures.");
+                : $"Preload finished — {succeeded:N0}/{assets.Count:N0} cached, {failed:N0} failed. First failures are shown above; full log: {LocalAssetPreloadFailureLogPath}");
 
             if (_assetPreloadProgress is not null) _assetPreloadProgress.Value = 1;
         }
         catch (OperationCanceledException)
         {
-            SetAssetPreloadStatus("Preload cancelled. Progress was kept; press PRELOAD ALL ASSETS to resume.");
+            SetAssetPreloadStatus($"Preload cancelled. Progress was kept. Failure log: {LocalAssetPreloadFailureLogPath}");
         }
         catch (Exception ex)
         {
