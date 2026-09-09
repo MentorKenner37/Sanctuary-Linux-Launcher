@@ -266,33 +266,39 @@ public partial class MainWindow
         using var stream = sheetEntry.Open();
         using var reader = XmlReader.Create(stream, new XmlReaderSettings { IgnoreWhitespace = true, DtdProcessing = DtdProcessing.Prohibit });
 
-        int key = 0;
-        string? name = null;
-        uint hash = 0;
-        long size = 0;
-        var rowNumber = 0;
-
         while (reader.Read())
         {
-            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "row")
+            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "row")
+                continue;
+
+            var rowNumber = int.TryParse(reader.GetAttribute("r"), out var parsedRow) ? parsedRow : 0;
+            if (rowNumber <= 1)
             {
-                rowNumber = int.TryParse(reader.GetAttribute("r"), out var parsedRow) ? parsedRow : rowNumber + 1;
-                key = 0; name = null; hash = 0; size = 0;
+                reader.Skip();
                 continue;
             }
 
-            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "c")
+            int key = 0;
+            string? name = null;
+            uint hash = 0;
+            long size = 0;
+
+            using var rowReader = reader.ReadSubtree();
+            while (rowReader.Read())
             {
-                var reference = reader.GetAttribute("r") ?? string.Empty;
+                if (rowReader.NodeType != XmlNodeType.Element || rowReader.LocalName != "c")
+                    continue;
+
+                var reference = rowReader.GetAttribute("r") ?? string.Empty;
                 var column = new string(reference.TakeWhile(char.IsLetter).ToArray());
                 if (column is not ("A" or "B" or "C" or "D"))
                 {
-                    reader.Skip();
+                    rowReader.Skip();
                     continue;
                 }
 
-                var cellType = reader.GetAttribute("t");
-                var value = ReadCellValue(reader);
+                var cellType = rowReader.GetAttribute("t");
+                var value = ReadCellValue(rowReader);
                 if (cellType == "s" && int.TryParse(value, out var sharedIndex) && sharedIndex >= 0 && sharedIndex < sharedStrings.Count)
                     value = sharedStrings[sharedIndex];
 
@@ -311,10 +317,9 @@ public partial class MainWindow
                         if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sizeValue)) size = (long)sizeValue;
                         break;
                 }
-                continue;
             }
 
-            if (reader.NodeType == XmlNodeType.EndElement && reader.LocalName == "row" && rowNumber > 1 && !string.IsNullOrWhiteSpace(name))
+            if (!string.IsNullOrWhiteSpace(name))
                 assets.Add(new MasterAsset(key, name, hash, size));
         }
 
@@ -326,16 +331,22 @@ public partial class MainWindow
     {
         var entry = archive.GetEntry("xl/sharedStrings.xml");
         if (entry is null) return new List<string>();
+
         var strings = new List<string>();
         using var stream = entry.Open();
         using var reader = XmlReader.Create(stream, new XmlReaderSettings { IgnoreWhitespace = true, DtdProcessing = DtdProcessing.Prohibit });
         while (reader.Read())
         {
-            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "si") continue;
+            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "si")
+                continue;
+
             using var subtree = reader.ReadSubtree();
             var text = new System.Text.StringBuilder();
             while (subtree.Read())
-                if (subtree.NodeType == XmlNodeType.Element && subtree.LocalName == "t") text.Append(subtree.ReadElementContentAsString());
+            {
+                if (subtree.NodeType == XmlNodeType.Element && subtree.LocalName == "t")
+                    text.Append(subtree.ReadElementContentAsString());
+            }
             strings.Add(text.ToString());
         }
         return strings;
