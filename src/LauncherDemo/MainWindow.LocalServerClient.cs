@@ -9,6 +9,7 @@ public partial class MainWindow
 
     private string LocalManifestHostDirectory => Path.Combine(_localServerRoot, "ManifestHost");
     private string LocalManifestClientDirectory => Path.Combine(LocalManifestHostDirectory, "client");
+    private string LocalClientReadyMarker => Path.Combine(LocalManifestHostDirectory, ".client-ready");
 
     private DispatcherTimer? _localServerAutomationTimer;
     private bool _localServerAutomationRunning;
@@ -33,9 +34,7 @@ public partial class MainWindow
             return;
         if (!Directory.Exists(LocalServerSourceDirectory) || !File.Exists(LocalServerComposePath))
             return;
-
-        var manifestPath = Path.Combine(LocalManifestHostDirectory, "clientmanifest.xml");
-        if (File.Exists(manifestPath))
+        if (File.Exists(LocalClientReadyMarker))
             return;
 
         _localServerAutomationRunning = true;
@@ -77,6 +76,9 @@ public partial class MainWindow
     {
         Directory.CreateDirectory(LocalManifestHostDirectory);
         Directory.CreateDirectory(LocalManifestClientDirectory);
+
+        if (File.Exists(LocalClientReadyMarker))
+            File.Delete(LocalClientReadyMarker);
 
         SetLocalServerStatus(
             "DOWNLOADING CLIENT MANIFEST…",
@@ -135,6 +137,8 @@ public partial class MainWindow
         {
             // Branding is optional and must not block local-server setup.
         }
+
+        File.WriteAllText(LocalClientReadyMarker, DateTimeOffset.UtcNow.ToString("O"));
 
         SetLocalServerStatus(
             "CLIENT READY",
