@@ -1,5 +1,6 @@
-using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Xml;
+using System.Xml.Linq;
 using System.Net;
 using Avalonia;
 using Avalonia.Controls;
@@ -88,8 +89,12 @@ public partial class MainWindow
 
         try
         {
-            SetAssetPreloadStatus("Loading bundled master asset list…");
-            var assets = await Task.Run(LoadBundledMasterAssetList, token);
+            var workbookPath = FindMasterAssetWorkbook();
+            if (workbookPath is null)
+                throw new FileNotFoundException("OSFR Research.xlsx was not found. Put it in the LocalServer/AssetProxy folder, Downloads, Desktop, or Documents, then try again.");
+
+            SetAssetPreloadStatus($"Loading master asset list from {Path.GetFileName(workbookPath)}…");
+            var assets = await Task.Run(() => LoadMasterAssetListFromWorkbook(workbookPath), token);
             var totalBytes = assets.Sum(asset => asset.Size);
 
             SetAssetPreloadStatus($"Loaded {assets.Count:N0} assets ({FormatBytes(totalBytes)}). Detecting Raising Kaines asset URL format…");
@@ -142,7 +147,6 @@ public partial class MainWindow
                 catch when (!cancellationToken.IsCancellationRequested) { }
 
                 int current;
-                int snapshotSucceeded;
                 int snapshotFailed;
                 long snapshotBytes;
                 lock (sync)
@@ -159,7 +163,6 @@ public partial class MainWindow
                         failed++;
                     }
                     current = finished;
-                    snapshotSucceeded = succeeded;
                     snapshotFailed = failed;
                     snapshotBytes = downloadedBytes;
                 }
@@ -238,32 +241,140 @@ public partial class MainWindow
         return null;
     }
 
-    private static List<MasterAsset> LoadBundledMasterAssetList()
+    private string? FindMasterAssetWorkbook()
     {
-        var assetsDirectory = Path.Combine(AppContext.BaseDirectory, "Assets");
-        var chunkPaths = Directory.Exists(assetsDirectory)
-            ? Directory.GetFiles(assetsDirectory, "master-assets-*.tsv.gz.b64").OrderBy(path => path, StringComparer.Ordinal).ToArray()
-            : Array.Empty<string>();
-        if (chunkPaths.Length == 0)
-            throw new FileNotFoundException("Bundled master asset list was not found in the launcher Assets directory.");
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var candidates = new[]
+        {
+            Path.Combine(LocalAssetProxyDirectory, "OSFR Research.xlsx"),
+            Path.Combine(_localServerRoot, "OSFR Research.xlsx"),
+            Path.Combine(home, "Downloads", "OSFR Research.xlsx"),
+            Path.Combine(home, "Desktop", "OSFR Research.xlsx"),
+            Path.Combine(home, "Documents", "OSFR Research.xlsx")
+        };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static List<MasterAsset> LoadMasterAssetListFromWorkbook(string workbookPath)
+    {
+        using var archive = ZipFile.OpenRead(workbookPath);
+        var sharedStrings = ReadSharedStrings(archive);
+        var sheetPath = ResolveWorksheetPath(archive, "Master Asset List");
+        var sheetEntry = archive.GetEntry(sheetPath) ?? throw new InvalidDataException($"Worksheet entry {sheetPath} was not found.");
 
         var assets = new List<MasterAsset>(162651);
-        foreach (var chunkPath in chunkPaths)
+        using var stream = sheetEntry.Open();
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings { IgnoreWhitespace = true, DtdProcessing = DtdProcessing.Prohibit });
+
+        int key = 0;
+        string? name = null;
+        uint hash = 0;
+        long size = 0;
+        var rowNumber = 0;
+
+        while (reader.Read())
         {
-            var packed = Convert.FromBase64String(File.ReadAllText(chunkPath).Trim());
-            using var memory = new MemoryStream(packed, writable: false);
-            using var gzip = new GZipStream(memory, CompressionMode.Decompress);
-            using var reader = new StreamReader(gzip);
-            _ = reader.ReadLine();
-            while (reader.ReadLine() is { } line)
+            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "row")
             {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                var parts = line.Split('\t');
-                if (parts.Length < 4 || !int.TryParse(parts[0], out var key) || !uint.TryParse(parts[2], out var hash) || !long.TryParse(parts[3], out var size)) continue;
-                assets.Add(new MasterAsset(key, parts[1], hash, size));
+                rowNumber = int.TryParse(reader.GetAttribute("r"), out var parsedRow) ? parsedRow : rowNumber + 1;
+                key = 0; name = null; hash = 0; size = 0;
+                continue;
             }
+
+            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "c")
+            {
+                var reference = reader.GetAttribute("r") ?? string.Empty;
+                var column = new string(reference.TakeWhile(char.IsLetter).ToArray());
+                if (column is not ("A" or "B" or "C" or "D"))
+                {
+                    reader.Skip();
+                    continue;
+                }
+
+                var cellType = reader.GetAttribute("t");
+                var value = ReadCellValue(reader);
+                if (cellType == "s" && int.TryParse(value, out var sharedIndex) && sharedIndex >= 0 && sharedIndex < sharedStrings.Count)
+                    value = sharedStrings[sharedIndex];
+
+                switch (column)
+                {
+                    case "A":
+                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var keyValue)) key = (int)keyValue;
+                        break;
+                    case "B":
+                        name = value;
+                        break;
+                    case "C":
+                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var hashValue)) hash = unchecked((uint)hashValue);
+                        break;
+                    case "D":
+                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sizeValue)) size = (long)sizeValue;
+                        break;
+                }
+                continue;
+            }
+
+            if (reader.NodeType == XmlNodeType.EndElement && reader.LocalName == "row" && rowNumber > 1 && !string.IsNullOrWhiteSpace(name))
+                assets.Add(new MasterAsset(key, name, hash, size));
         }
+
+        if (assets.Count == 0) throw new InvalidDataException("The Master Asset List worksheet did not contain any assets.");
         return assets;
+    }
+
+    private static List<string> ReadSharedStrings(ZipArchive archive)
+    {
+        var entry = archive.GetEntry("xl/sharedStrings.xml");
+        if (entry is null) return new List<string>();
+        var strings = new List<string>();
+        using var stream = entry.Open();
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings { IgnoreWhitespace = true, DtdProcessing = DtdProcessing.Prohibit });
+        while (reader.Read())
+        {
+            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "si") continue;
+            using var subtree = reader.ReadSubtree();
+            var text = new System.Text.StringBuilder();
+            while (subtree.Read())
+                if (subtree.NodeType == XmlNodeType.Element && subtree.LocalName == "t") text.Append(subtree.ReadElementContentAsString());
+            strings.Add(text.ToString());
+        }
+        return strings;
+    }
+
+    private static string ResolveWorksheetPath(ZipArchive archive, string sheetName)
+    {
+        var workbookEntry = archive.GetEntry("xl/workbook.xml") ?? throw new InvalidDataException("Workbook metadata is missing.");
+        XDocument workbook;
+        using (var stream = workbookEntry.Open()) workbook = XDocument.Load(stream);
+        XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        var sheet = workbook.Descendants(main + "sheet").FirstOrDefault(node => string.Equals((string?)node.Attribute("name"), sheetName, StringComparison.Ordinal))
+            ?? throw new InvalidDataException($"Worksheet '{sheetName}' was not found.");
+        var relationshipId = (string?)sheet.Attribute(relNs + "id") ?? throw new InvalidDataException("Worksheet relationship is missing.");
+
+        var relEntry = archive.GetEntry("xl/_rels/workbook.xml.rels") ?? throw new InvalidDataException("Workbook relationships are missing.");
+        XDocument relationships;
+        using (var stream = relEntry.Open()) relationships = XDocument.Load(stream);
+        XNamespace packageRel = "http://schemas.openxmlformats.org/package/2006/relationships";
+        var target = relationships.Descendants(packageRel + "Relationship")
+            .Where(node => string.Equals((string?)node.Attribute("Id"), relationshipId, StringComparison.Ordinal))
+            .Select(node => (string?)node.Attribute("Target"))
+            .FirstOrDefault() ?? throw new InvalidDataException("Worksheet target is missing.");
+        return target.StartsWith('/') ? target.TrimStart('/') : "xl/" + target.TrimStart('/');
+    }
+
+    private static string ReadCellValue(XmlReader cellReader)
+    {
+        if (cellReader.IsEmptyElement) return string.Empty;
+        var depth = cellReader.Depth;
+        while (cellReader.Read())
+        {
+            if (cellReader.NodeType == XmlNodeType.Element && cellReader.LocalName == "v")
+                return cellReader.ReadElementContentAsString();
+            if (cellReader.NodeType == XmlNodeType.EndElement && cellReader.Depth == depth && cellReader.LocalName == "c")
+                break;
+        }
+        return string.Empty;
     }
 
     private static string EscapeAssetName(string name) => string.Join('/', name.Split('/').Select(Uri.EscapeDataString));
