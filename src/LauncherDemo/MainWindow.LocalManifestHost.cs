@@ -112,13 +112,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def read_request_body(self):
+        transfer_encoding = self.headers.get("Transfer-Encoding", "").lower()
+        if "chunked" in transfer_encoding:
+            body = bytearray()
+            while True:
+                line = self.rfile.readline().strip()
+                if not line:
+                    continue
+                chunk_size = int(line.split(b";", 1)[0], 16)
+                if chunk_size == 0:
+                    while True:
+                        trailer = self.rfile.readline()
+                        if trailer in (b"\r\n", b"\n", b""):
+                            break
+                    break
+                body.extend(self.rfile.read(chunk_size))
+                self.rfile.read(2)
+            return bytes(body)
+
+        length = int(self.headers.get("Content-Length", "0"))
+        return self.rfile.read(length) if length else b""
+
     def do_POST(self):
         if self.path not in ("/register", "/login"):
             self.send_error(404)
             return
 
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length) if length else b""
+        body = self.read_request_body()
+        print(f"Proxying {self.path}: {len(body)} request bytes", flush=True)
+
         request = urllib.request.Request(
             WEBAPI + self.path,
             data=body,
