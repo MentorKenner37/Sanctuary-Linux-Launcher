@@ -234,9 +234,8 @@ public partial class MainWindow
     private static string BuildAssetRequestPath(MasterAsset asset)
     {
         var escapedName = EscapeAssetName(asset.Name);
-        return asset.Compressed
-            ? $"{asset.Key}/{escapedName}.z"
-            : escapedName;
+        var fileName = asset.Compressed ? escapedName + ".z" : escapedName;
+        return $"{asset.Key:D3}/{fileName}?{asset.Hash}";
     }
 
     private string? FindMasterAssetWorkbook()
