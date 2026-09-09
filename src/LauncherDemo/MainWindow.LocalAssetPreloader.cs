@@ -22,6 +22,8 @@ public partial class MainWindow
     private CancellationTokenSource? _assetPreloadCancellation;
 
     private string LocalAssetPreloadStatePath => Path.Combine(LocalAssetProxyDirectory, "preload-complete.txt");
+    private string LocalAssetPreloadValidPath => Path.Combine(LocalAssetProxyDirectory, "preload-valid-assets.txt");
+    private string LocalAssetPreloadMissingPath => Path.Combine(LocalAssetProxyDirectory, "preload-missing-assets.txt");
     private string LocalAssetPreloadFailureLogPath => Path.Combine(LocalAssetProxyDirectory, "preload-failures.log");
 
     private void InitializeLocalAssetPreloaderUi()
@@ -36,7 +38,7 @@ public partial class MainWindow
         _localAssetPreloaderUiInitialized = true;
         _assetPreloadStatusText = new TextBlock
         {
-            Text = "Master list: 162,651 assets (~4.10 GB). Preload them through the local nginx cache so the game does not have to discover them while you play.",
+            Text = "Master list: 162,651 assets (~4.10 GB). The first full pass discovers what Raising Kaines actually hosts and caches every valid asset. Later runs skip known 404s.",
             Foreground = new SolidColorBrush(Color.Parse("#9E9E9E")),
             TextWrapping = TextWrapping.Wrap
         };
@@ -48,7 +50,7 @@ public partial class MainWindow
             Height = 8,
             IsVisible = false
         };
-        _assetPreloadButton = new Button { Content = "PRELOAD ALL ASSETS", Classes = { "primary" } };
+        _assetPreloadButton = new Button { Content = "DISCOVER + PRELOAD ASSETS", Classes = { "primary" } };
         _assetPreloadButton.Click += LocalAssetPreloadClicked;
 
         var card = new Border
@@ -104,32 +106,49 @@ public partial class MainWindow
             var compressedCount = assets.Count(asset => asset.Compressed);
             var plainCount = assets.Count - compressedCount;
 
-            SetAssetPreloadStatus($"Loaded {assets.Count:N0} assets ({FormatBytes(totalBytes)}) • {compressedCount:N0} compressed • {plainCount:N0} plain. Preparing preload…");
+            SetAssetPreloadStatus($"Loaded {assets.Count:N0} assets ({FormatBytes(totalBytes)}) • {compressedCount:N0} compressed • {plainCount:N0} plain. Loading discovery state…");
 
             Directory.CreateDirectory(LocalAssetProxyDirectory);
-            var completed = File.Exists(LocalAssetPreloadStatePath)
-                ? new HashSet<string>(await File.ReadAllLinesAsync(LocalAssetPreloadStatePath, token), StringComparer.Ordinal)
+
+            var completed = new HashSet<string>(StringComparer.Ordinal);
+            if (File.Exists(LocalAssetPreloadStatePath))
+                completed.UnionWith(await File.ReadAllLinesAsync(LocalAssetPreloadStatePath, token));
+            if (File.Exists(LocalAssetPreloadValidPath))
+                completed.UnionWith(await File.ReadAllLinesAsync(LocalAssetPreloadValidPath, token));
+
+            var knownMissing = File.Exists(LocalAssetPreloadMissingPath)
+                ? new HashSet<string>(await File.ReadAllLinesAsync(LocalAssetPreloadMissingPath, token), StringComparer.Ordinal)
                 : new HashSet<string>(StringComparer.Ordinal);
 
-            var pending = assets
+            var requests = assets
                 .Select(asset => new AssetRequest(asset, BuildAssetRequestPath(asset)))
-                .Where(request => !completed.Contains(request.Path))
                 .ToArray();
 
-            var alreadyDone = assets.Count - pending.Length;
-            var finished = alreadyDone;
-            var succeeded = alreadyDone;
-            var failed = 0;
+            var pending = requests
+                .Where(request => !completed.Contains(request.Path) && !knownMissing.Contains(request.Path))
+                .ToArray();
+
+            var knownGood = requests.Count(request => completed.Contains(request.Path));
+            var knownGone = requests.Count(request => knownMissing.Contains(request.Path));
+            var alreadyClassified = knownGood + knownGone;
+            var finished = alreadyClassified;
+            var succeeded = knownGood;
+            var missing = knownGone;
+            var transientFailed = 0;
             long downloadedBytes = 0;
             var sync = new object();
             var firstFailures = new List<string>(12);
 
-            SetAssetPreloadStatus(alreadyDone > 0
-                ? $"Resuming at {alreadyDone:N0}/{assets.Count:N0}. Downloading with {AssetPreloadConcurrency} workers…"
-                : $"Downloading {assets.Count:N0} assets with {AssetPreloadConcurrency} workers…");
+            SetAssetPreloadStatus(alreadyClassified > 0
+                ? $"Discovery resume: {knownGood:N0} valid • {knownGone:N0} missing • {pending.Length:N0} unknown. Testing unknown assets with {AssetPreloadConcurrency} workers…"
+                : $"First discovery pass: testing {assets.Count:N0} assets with {AssetPreloadConcurrency} workers. Valid assets are downloaded into nginx cache as they are found…");
 
             await using var stateStream = new FileStream(LocalAssetPreloadStatePath, FileMode.Append, FileAccess.Write, FileShare.Read);
             await using var stateWriter = new StreamWriter(stateStream) { AutoFlush = false };
+            await using var validStream = new FileStream(LocalAssetPreloadValidPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            await using var validWriter = new StreamWriter(validStream) { AutoFlush = false };
+            await using var missingStream = new FileStream(LocalAssetPreloadMissingPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            await using var missingWriter = new StreamWriter(missingStream) { AutoFlush = false };
             await using var failureStream = new FileStream(LocalAssetPreloadFailureLogPath, FileMode.Create, FileAccess.Write, FileShare.Read);
             await using var failureWriter = new StreamWriter(failureStream) { AutoFlush = true };
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
@@ -141,7 +160,9 @@ public partial class MainWindow
             }, async (request, cancellationToken) =>
             {
                 var ok = false;
+                var permanentlyMissing = false;
                 string? failureDetail = null;
+
                 try
                 {
                     using var response = await client.GetAsync(
@@ -157,6 +178,7 @@ public partial class MainWindow
                     }
                     else
                     {
+                        permanentlyMissing = response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone;
                         failureDetail = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {request.Path}";
                     }
                 }
@@ -166,9 +188,12 @@ public partial class MainWindow
                 }
 
                 int current;
-                int snapshotFailed;
+                int snapshotSucceeded;
+                int snapshotMissing;
+                int snapshotTransient;
                 long snapshotBytes;
                 string[] snapshotFailures;
+
                 lock (sync)
                 {
                     finished++;
@@ -177,22 +202,35 @@ public partial class MainWindow
                         succeeded++;
                         downloadedBytes += request.Asset.Size;
                         stateWriter.WriteLine(request.Path);
+                        validWriter.WriteLine(request.Path);
+                    }
+                    else if (permanentlyMissing)
+                    {
+                        missing++;
+                        missingWriter.WriteLine(request.Path);
+                        failureDetail ??= $"Missing: {request.Path}";
+                        failureWriter.WriteLine(failureDetail);
+                        if (firstFailures.Count < 12)
+                            firstFailures.Add(failureDetail);
                     }
                     else
                     {
-                        failed++;
+                        transientFailed++;
                         failureDetail ??= $"Unknown failure: {request.Path}";
                         failureWriter.WriteLine(failureDetail);
                         if (firstFailures.Count < 12)
                             firstFailures.Add(failureDetail);
                     }
+
                     current = finished;
-                    snapshotFailed = failed;
+                    snapshotSucceeded = succeeded;
+                    snapshotMissing = missing;
+                    snapshotTransient = transientFailed;
                     snapshotBytes = downloadedBytes;
                     snapshotFailures = firstFailures.Take(3).ToArray();
                 }
 
-                if (current % 100 == 0 || current == assets.Count || (snapshotFailed > 0 && current <= alreadyDone + 100))
+                if (current % 100 == 0 || current == assets.Count || current <= alreadyClassified + 100)
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -201,23 +239,26 @@ public partial class MainWindow
 
                         var failurePreview = snapshotFailures.Length == 0
                             ? string.Empty
-                            : "\nFirst failures:\n" + string.Join("\n", snapshotFailures);
+                            : "\nExamples unavailable/error:\n" + string.Join("\n", snapshotFailures);
 
-                        SetAssetPreloadStatus($"{current:N0}/{assets.Count:N0} ({(double)current / assets.Count:P1}) • cached this run: {FormatBytes(snapshotBytes)} • failed: {snapshotFailed:N0}{failurePreview}");
+                        SetAssetPreloadStatus(
+                            $"{current:N0}/{assets.Count:N0} ({(double)current / assets.Count:P1}) • valid: {snapshotSucceeded:N0} • missing: {snapshotMissing:N0} • retryable errors: {snapshotTransient:N0} • cached this run: {FormatBytes(snapshotBytes)}{failurePreview}");
                     });
                 }
             });
 
             await stateWriter.FlushAsync(token);
-            SetAssetPreloadStatus(failed == 0
-                ? $"PRELOAD COMPLETE — {succeeded:N0}/{assets.Count:N0} assets are marked cached."
-                : $"Preload finished — {succeeded:N0}/{assets.Count:N0} cached, {failed:N0} failed. First failures are shown above; full log: {LocalAssetPreloadFailureLogPath}");
+            await validWriter.FlushAsync(token);
+            await missingWriter.FlushAsync(token);
+
+            SetAssetPreloadStatus(
+                $"DISCOVERY COMPLETE — {succeeded:N0} assets available from Raising Kaines, {missing:N0} confirmed missing, {transientFailed:N0} retryable errors. Valid list: {LocalAssetPreloadValidPath} • missing list: {LocalAssetPreloadMissingPath}");
 
             if (_assetPreloadProgress is not null) _assetPreloadProgress.Value = 1;
         }
         catch (OperationCanceledException)
         {
-            SetAssetPreloadStatus($"Preload cancelled. Progress was kept. Failure log: {LocalAssetPreloadFailureLogPath}");
+            SetAssetPreloadStatus($"Preload cancelled. Valid/missing discovery progress was kept. Failure log: {LocalAssetPreloadFailureLogPath}");
         }
         catch (Exception ex)
         {
@@ -227,7 +268,7 @@ public partial class MainWindow
         {
             _assetPreloadCancellation.Dispose();
             _assetPreloadCancellation = null;
-            if (_assetPreloadButton is not null) _assetPreloadButton.Content = "PRELOAD ALL ASSETS";
+            if (_assetPreloadButton is not null) _assetPreloadButton.Content = "DISCOVER + PRELOAD ASSETS";
         }
     }
 
