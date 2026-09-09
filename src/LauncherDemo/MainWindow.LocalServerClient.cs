@@ -7,12 +7,18 @@ namespace OSFR.Linux.LauncherDemo;
 
 public partial class MainWindow
 {
-    private static readonly Uri OfficialClientBaseUri = new("https://opensourcefreerealms.com/");
+    // Use the actual Raising Kaines client distribution. Its clientmanifest includes the
+    // Assets_*.pack / AssetsW_*.pack files and Assets_manifest.txt used by that client,
+    // so the local Sanctuary client starts with the same packed asset base instead of
+    // trying to reconstruct it from individual CDN objects.
+    private static readonly Uri OfficialClientBaseUri = new("https://play.raisingkaines.com/");
     private const int LocalClientDownloadConcurrency = 30;
 
     private string LocalManifestHostDirectory => Path.Combine(_localServerRoot, "ManifestHost");
     private string LocalManifestClientDirectory => Path.Combine(LocalManifestHostDirectory, "client");
     private string LocalClientReadyMarker => Path.Combine(LocalManifestHostDirectory, ".client-ready");
+    private string LocalClientSourceMarker => Path.Combine(LocalManifestHostDirectory, ".client-source");
+    private const string LocalClientSourceId = "raising-kaines-v1";
 
     private DispatcherTimer? _localServerAutomationTimer;
     private bool _localServerAutomationRunning;
@@ -31,13 +37,20 @@ public partial class MainWindow
         _ = TryRunLocalServerAutomationAsync();
     }
 
+    private bool IsLocalClientCurrentSource()
+    {
+        if (!File.Exists(LocalClientReadyMarker) || !File.Exists(LocalClientSourceMarker))
+            return false;
+        return string.Equals(File.ReadAllText(LocalClientSourceMarker).Trim(), LocalClientSourceId, StringComparison.Ordinal);
+    }
+
     private async Task TryRunLocalServerAutomationAsync()
     {
         if (_localServerAutomationRunning)
             return;
         if (!Directory.Exists(LocalServerSourceDirectory) || !File.Exists(LocalServerComposePath))
             return;
-        if (File.Exists(LocalClientReadyMarker))
+        if (IsLocalClientCurrentSource())
             return;
 
         _localServerAutomationRunning = true;
@@ -80,13 +93,13 @@ public partial class MainWindow
         Directory.CreateDirectory(LocalManifestHostDirectory);
         Directory.CreateDirectory(LocalManifestClientDirectory);
 
-        if (File.Exists(LocalClientReadyMarker))
-            File.Delete(LocalClientReadyMarker);
+        if (File.Exists(LocalClientReadyMarker)) File.Delete(LocalClientReadyMarker);
+        if (File.Exists(LocalClientSourceMarker)) File.Delete(LocalClientSourceMarker);
 
         SetLocalServerStatus(
-            "DOWNLOADING CLIENT MANIFEST…",
+            "DOWNLOADING KAINES CLIENT MANIFEST…",
             Muted,
-            "Getting the official client manifest from Open Source Free Realms.");
+            "Getting the Raising Kaines client manifest, including its packed asset set.");
 
         var manifestXml = await DownloadTextLimitedAsync(
             new Uri(OfficialClientBaseUri, "clientmanifest.xml"),
@@ -94,12 +107,13 @@ public partial class MainWindow
 
         var manifest = ParseClientManifest(manifestXml);
         if (manifest.Version != 1)
-            throw new InvalidDataException($"Official client manifest version {manifest.Version} is not supported.");
+            throw new InvalidDataException($"Raising Kaines client manifest version {manifest.Version} is not supported.");
 
         var files = FlattenClientFiles(manifest.RootFolder).ToList();
         if (files.Count == 0)
-            throw new InvalidDataException("The official client manifest does not contain any files.");
+            throw new InvalidDataException("The Raising Kaines client manifest does not contain any files.");
 
+        var packCount = files.Count(file => file.RelativePath.EndsWith(".pack", StringComparison.OrdinalIgnoreCase));
         var needsDownload = new List<ClientFileEntry>();
         var alreadyCurrent = 0;
 
@@ -109,9 +123,9 @@ public partial class MainWindow
             var localPath = GetSafeClientPath(LocalManifestClientDirectory, file.RelativePath);
 
             SetLocalServerStatus(
-                "PREPARING GAME CLIENT…",
+                "PREPARING KAINES GAME CLIENT…",
                 Muted,
-                $"Checking official client file {i + 1}/{files.Count}: {file.RelativePath}");
+                $"Checking Kaines client file {i + 1}/{files.Count}: {file.RelativePath}");
 
             if (await IsLocalFileValidAsync(localPath, file))
                 alreadyCurrent++;
@@ -123,9 +137,9 @@ public partial class MainWindow
         if (needsDownload.Count > 0)
         {
             SetLocalServerStatus(
-                "DOWNLOADING GAME CLIENT…",
+                "DOWNLOADING KAINES GAME CLIENT…",
                 Muted,
-                $"Downloading {needsDownload.Count} client files with up to {LocalClientDownloadConcurrency} simultaneous downloads.");
+                $"Downloading {needsDownload.Count} files ({packCount} pack files in manifest) with up to {LocalClientDownloadConcurrency} simultaneous downloads.");
 
             using var gate = new SemaphoreSlim(LocalClientDownloadConcurrency);
             var completed = 0;
@@ -135,15 +149,12 @@ public partial class MainWindow
                 await gate.WaitAsync();
                 try
                 {
-                    // Upstream can briefly serve a newer file while clientmanifest.xml still has
-                    // the old size/hash. Mirror the complete current bytes, then rebuild our local
-                    // manifest from those bytes after every download finishes.
                     await DownloadLocalMirrorFileAsync(file);
                     Interlocked.Increment(ref downloaded);
                     var done = Interlocked.Increment(ref completed);
 
                     Dispatcher.UIThread.Post(() => SetLocalServerStatus(
-                        "DOWNLOADING GAME CLIENT…",
+                        "DOWNLOADING KAINES GAME CLIENT…",
                         Muted,
                         $"Downloaded {done}/{needsDownload.Count} needed files • {alreadyCurrent} already current • {LocalClientDownloadConcurrency} parallel connections"));
                 }
@@ -159,7 +170,7 @@ public partial class MainWindow
         SetLocalServerStatus(
             "BUILDING LOCAL CLIENT MANIFEST…",
             Muted,
-            "Rebuilding file sizes and XXHash64 values from the mirrored client.");
+            "Rebuilding file sizes and XXHash64 values from the mirrored Kaines client.");
 
         var localManifestXml = await Task.Run(() => BuildLocalClientManifest(manifestXml));
         File.WriteAllText(Path.Combine(LocalManifestHostDirectory, "clientmanifest.xml"), localManifestXml);
@@ -175,12 +186,13 @@ public partial class MainWindow
             // Branding is optional and must not block local-server setup.
         }
 
+        File.WriteAllText(LocalClientSourceMarker, LocalClientSourceId);
         File.WriteAllText(LocalClientReadyMarker, DateTimeOffset.UtcNow.ToString("O"));
 
         SetLocalServerStatus(
             "CLIENT READY",
             Good,
-            $"Official client mirror is ready: {downloaded} downloaded, {alreadyCurrent} already current, {files.Count} total files.");
+            $"Raising Kaines client mirror is ready: {downloaded} downloaded, {alreadyCurrent} already current, {files.Count} total files, {packCount} pack files.");
     }
 
     private async Task DownloadLocalMirrorFileAsync(ClientFileEntry file)
