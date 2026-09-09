@@ -1,4 +1,5 @@
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace OSFR.Linux.LauncherDemo;
 
@@ -8,6 +9,50 @@ public partial class MainWindow
 
     private string LocalManifestHostDirectory => Path.Combine(_localServerRoot, "ManifestHost");
     private string LocalManifestClientDirectory => Path.Combine(LocalManifestHostDirectory, "client");
+
+    private DispatcherTimer? _localServerAutomationTimer;
+    private bool _localServerAutomationRunning;
+
+    private void StartLocalServerAutomationMonitor()
+    {
+        if (_localServerAutomationTimer is not null)
+            return;
+
+        _localServerAutomationTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        _localServerAutomationTimer.Tick += async (_, _) => await TryRunLocalServerAutomationAsync();
+        _localServerAutomationTimer.Start();
+        _ = TryRunLocalServerAutomationAsync();
+    }
+
+    private async Task TryRunLocalServerAutomationAsync()
+    {
+        if (_localServerAutomationRunning)
+            return;
+        if (!Directory.Exists(LocalServerSourceDirectory) || !File.Exists(LocalServerComposePath))
+            return;
+
+        var manifestPath = Path.Combine(LocalManifestHostDirectory, "clientmanifest.xml");
+        if (File.Exists(manifestPath))
+            return;
+
+        _localServerAutomationRunning = true;
+        try
+        {
+            PatchLocalServerDockerSdk();
+            await PrepareLocalClientMirrorAsync();
+        }
+        catch (Exception ex)
+        {
+            SetLocalServerStatus("CLIENT SETUP FAILED", Bad, ex.Message);
+        }
+        finally
+        {
+            _localServerAutomationRunning = false;
+        }
+    }
 
     private void PatchLocalServerDockerSdk()
     {
