@@ -1,33 +1,70 @@
-using System.Net;
-using System.Text;
+using System.Diagnostics;
 
 namespace OSFR.Linux.LauncherDemo;
 
 public partial class MainWindow
 {
-    private const string LocalManifestPrefix = "http://127.0.0.1:8443/";
-    private static readonly Uri LocalSanctuaryWebApi = new("http://127.0.0.1:20040/");
-
-    private HttpListener? _localManifestListener;
-    private CancellationTokenSource? _localManifestHostCancellation;
+    private const string LocalManifestPrefix = "https://127.0.0.1:8443/";
+    private Process? _localManifestHostProcess;
 
     private void StartLocalManifestHost()
     {
-        if (_localManifestListener is not null)
+        if (_localManifestHostProcess is { HasExited: false })
             return;
 
         try
         {
             Directory.CreateDirectory(LocalManifestHostDirectory);
             WriteLocalServerManifest();
+            WriteLocalManifestPythonHost();
 
-            var listener = new HttpListener();
-            listener.Prefixes.Add(LocalManifestPrefix);
-            listener.Start();
+            var certPath = Path.Combine(LocalManifestHostDirectory, "cert.crt");
+            var keyPath = Path.Combine(LocalManifestHostDirectory, "key.pem");
 
-            _localManifestListener = listener;
-            _localManifestHostCancellation = new CancellationTokenSource();
-            _ = Task.Run(() => RunLocalManifestHostAsync(listener, _localManifestHostCancellation.Token));
+            if (!File.Exists(certPath) || !File.Exists(keyPath))
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var testCert = Path.Combine(home, "sanctuary-manifest-test", "cert.crt");
+                var testKey = Path.Combine(home, "sanctuary-manifest-test", "key.pem");
+
+                if (File.Exists(testCert) && File.Exists(testKey))
+                {
+                    File.Copy(testCert, certPath, true);
+                    File.Copy(testKey, keyPath, true);
+                }
+            }
+
+            if (!File.Exists(certPath) || !File.Exists(keyPath))
+                throw new FileNotFoundException("Local HTTPS certificate was not found. The launcher expected the already-trusted local test certificate.");
+
+            if (!CommandExists("python3"))
+                throw new InvalidOperationException("python3 is required for the local HTTPS manifest host.");
+
+            var scriptPath = Path.Combine(LocalManifestHostDirectory, "serve-local.py");
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "python3",
+                WorkingDirectory = LocalManifestHostDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.ArgumentList.Add(scriptPath);
+            startInfo.ArgumentList.Add(certPath);
+            startInfo.ArgumentList.Add(keyPath);
+
+            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            if (!process.Start())
+                throw new InvalidOperationException("Could not start the local manifest host.");
+
+            process.Exited += (_, _) =>
+            {
+                try { process.Dispose(); } catch { }
+                if (ReferenceEquals(_localManifestHostProcess, process))
+                    _localManifestHostProcess = null;
+            };
+
+            _localManifestHostProcess = process;
         }
         catch (Exception ex)
         {
@@ -41,7 +78,7 @@ public partial class MainWindow
 <ServerManifest version="2">
   <Name>Local Sanctuary</Name>
   <Description>Sanctuary server running locally on this computer.</Description>
-  <WebApiUrl>http://127.0.0.1:8443/</WebApiUrl>
+  <WebApiUrl>https://127.0.0.1:8443/</WebApiUrl>
   <LoginServer>127.0.0.1:20042</LoginServer>
   <LogoUrl>servericon.png</LogoUrl>
 </ServerManifest>
@@ -49,143 +86,72 @@ public partial class MainWindow
         File.WriteAllText(Path.Combine(LocalManifestHostDirectory, "servermanifest.xml"), xml);
     }
 
-    private async Task RunLocalManifestHostAsync(HttpListener listener, CancellationToken cancellationToken)
+    private void WriteLocalManifestPythonHost()
     {
-        while (!cancellationToken.IsCancellationRequested && listener.IsListening)
-        {
-            HttpListenerContext context;
-            try
-            {
-                context = await listener.GetContextAsync();
-            }
-            catch (Exception) when (cancellationToken.IsCancellationRequested || !listener.IsListening)
-            {
-                break;
-            }
-            catch
-            {
-                continue;
-            }
+        var script = """
+import http.server
+import ssl
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
 
-            _ = Task.Run(() => HandleLocalManifestRequestAsync(context), cancellationToken);
-        }
-    }
+ROOT = Path(__file__).resolve().parent
+CERT = sys.argv[1]
+KEY = sys.argv[2]
+WEBAPI = "http://127.0.0.1:20040"
 
-    private async Task HandleLocalManifestRequestAsync(HttpListenerContext context)
-    {
-        try
-        {
-            var path = context.Request.Url?.AbsolutePath ?? "/";
+class Handler(http.server.SimpleHTTPRequestHandler):
+    directory = str(ROOT)
 
-            if (context.Request.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase) &&
-                (path.Equals("/register", StringComparison.OrdinalIgnoreCase) ||
-                 path.Equals("/login", StringComparison.OrdinalIgnoreCase)))
-            {
-                await ProxyLocalWebApiRequestAsync(context, path);
-                return;
-            }
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT), **kwargs)
 
-            if (!context.Request.HttpMethod.Equals("GET", StringComparison.OrdinalIgnoreCase) &&
-                !context.Request.HttpMethod.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
-            {
-                context.Response.StatusCode = (int)HttpStatusCode.MethodNotAllowed;
-                context.Response.Close();
-                return;
-            }
+    def do_POST(self):
+        if self.path not in ("/register", "/login"):
+            self.send_error(404)
+            return
 
-            string filePath;
-            if (path.Equals("/servermanifest.xml", StringComparison.OrdinalIgnoreCase))
-            {
-                WriteLocalServerManifest();
-                filePath = Path.Combine(LocalManifestHostDirectory, "servermanifest.xml");
-            }
-            else if (path.Equals("/clientmanifest.xml", StringComparison.OrdinalIgnoreCase))
-            {
-                filePath = Path.Combine(LocalManifestHostDirectory, "clientmanifest.xml");
-            }
-            else if (path.Equals("/servericon.png", StringComparison.OrdinalIgnoreCase))
-            {
-                filePath = Path.Combine(LocalManifestHostDirectory, "servericon.png");
-            }
-            else if (path.StartsWith("/client/", StringComparison.OrdinalIgnoreCase))
-            {
-                var relativeUrl = Uri.UnescapeDataString(path[8..]);
-                var relativePath = relativeUrl.Replace('/', Path.DirectorySeparatorChar);
-                filePath = GetSafeClientPath(LocalManifestClientDirectory, relativePath);
-            }
-            else
-            {
-                context.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                context.Response.Close();
-                return;
-            }
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length) if length else b""
+        request = urllib.request.Request(
+            WEBAPI + self.path,
+            data=body,
+            method="POST",
+            headers={"Content-Type": self.headers.get("Content-Type", "application/json")},
+        )
 
-            if (!File.Exists(filePath))
-            {
-                context.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                context.Response.Close();
-                return;
-            }
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                payload = response.read()
+                self.send_response(response.status)
+                self.send_header("Content-Type", response.headers.get("Content-Type", "application/json"))
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+        except urllib.error.HTTPError as error:
+            payload = error.read()
+            self.send_response(error.code)
+            self.send_header("Content-Type", error.headers.get("Content-Type", "application/json"))
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        except Exception as error:
+            payload = ("Local Sanctuary WebAPI proxy failed: " + str(error)).encode("utf-8")
+            self.send_response(502)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
 
-            context.Response.ContentType = Path.GetExtension(filePath).ToLowerInvariant() switch
-            {
-                ".xml" => "application/xml; charset=utf-8",
-                ".png" => "image/png",
-                ".html" => "text/html; charset=utf-8",
-                ".txt" => "text/plain; charset=utf-8",
-                _ => "application/octet-stream"
-            };
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 8443), Handler)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(CERT, KEY)
+server.socket = ctx.wrap_socket(server.socket, server_side=True)
+print("Local Sanctuary manifest host running at https://127.0.0.1:8443/", flush=True)
+server.serve_forever()
+""";
 
-            var info = new FileInfo(filePath);
-            context.Response.ContentLength64 = info.Length;
-
-            if (!context.Request.HttpMethod.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
-            {
-                await using var input = File.OpenRead(filePath);
-                await input.CopyToAsync(context.Response.OutputStream);
-            }
-
-            context.Response.Close();
-        }
-        catch
-        {
-            try
-            {
-                context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-                context.Response.Close();
-            }
-            catch
-            {
-            }
-        }
-    }
-
-    private async Task ProxyLocalWebApiRequestAsync(HttpListenerContext context, string path)
-    {
-        var target = new Uri(LocalSanctuaryWebApi, path.TrimStart('/'));
-        using var request = new HttpRequestMessage(new HttpMethod(context.Request.HttpMethod), target);
-
-        if (context.Request.HasEntityBody)
-        {
-            using var memory = new MemoryStream();
-            await context.Request.InputStream.CopyToAsync(memory);
-            var content = new ByteArrayContent(memory.ToArray());
-            if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
-                content.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
-            request.Content = content;
-        }
-
-        using var response = await _httpClient.SendAsync(request);
-        var responseBytes = await response.Content.ReadAsByteArrayAsync();
-
-        context.Response.StatusCode = (int)response.StatusCode;
-        if (response.Content.Headers.ContentType is not null)
-            context.Response.ContentType = response.Content.Headers.ContentType.ToString();
-        context.Response.ContentLength64 = responseBytes.LongLength;
-
-        if (responseBytes.Length > 0)
-            await context.Response.OutputStream.WriteAsync(responseBytes);
-
-        context.Response.Close();
+        File.WriteAllText(Path.Combine(LocalManifestHostDirectory, "serve-local.py"), script);
     }
 }
