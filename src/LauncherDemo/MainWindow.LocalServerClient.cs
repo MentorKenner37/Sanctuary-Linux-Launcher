@@ -6,6 +6,7 @@ namespace OSFR.Linux.LauncherDemo;
 public partial class MainWindow
 {
     private static readonly Uri OfficialClientBaseUri = new("https://opensourcefreerealms.com/");
+    private const int LocalClientDownloadConcurrency = 8;
 
     private string LocalManifestHostDirectory => Path.Combine(_localServerRoot, "ManifestHost");
     private string LocalManifestClientDirectory => Path.Combine(LocalManifestHostDirectory, "client");
@@ -99,7 +100,7 @@ public partial class MainWindow
 
         File.WriteAllText(Path.Combine(LocalManifestHostDirectory, "clientmanifest.xml"), manifestXml);
 
-        var downloaded = 0;
+        var needsDownload = new List<ClientFileEntry>();
         var alreadyCurrent = 0;
 
         for (var i = 0; i < files.Count; i++)
@@ -113,18 +114,43 @@ public partial class MainWindow
                 $"Checking official client file {i + 1}/{files.Count}: {file.RelativePath}");
 
             if (await IsLocalFileValidAsync(localPath, file))
-            {
                 alreadyCurrent++;
-                continue;
-            }
+            else
+                needsDownload.Add(file);
+        }
 
+        var downloaded = 0;
+        if (needsDownload.Count > 0)
+        {
             SetLocalServerStatus(
                 "DOWNLOADING GAME CLIENT…",
                 Muted,
-                $"Downloading official client file {i + 1}/{files.Count}: {file.RelativePath}");
+                $"Downloading {needsDownload.Count} client files with up to {LocalClientDownloadConcurrency} simultaneous downloads.");
 
-            await DownloadClientFileAsync(OfficialClientBaseUri, LocalManifestClientDirectory, file);
-            downloaded++;
+            using var gate = new SemaphoreSlim(LocalClientDownloadConcurrency);
+            var completed = 0;
+
+            var tasks = needsDownload.Select(async file =>
+            {
+                await gate.WaitAsync();
+                try
+                {
+                    await DownloadClientFileAsync(OfficialClientBaseUri, LocalManifestClientDirectory, file);
+                    Interlocked.Increment(ref downloaded);
+                    var done = Interlocked.Increment(ref completed);
+
+                    Dispatcher.UIThread.Post(() => SetLocalServerStatus(
+                        "DOWNLOADING GAME CLIENT…",
+                        Muted,
+                        $"Downloaded {done}/{needsDownload.Count} needed files • {alreadyCurrent} already current • {LocalClientDownloadConcurrency} parallel connections"));
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }).ToArray();
+
+            await Task.WhenAll(tasks);
         }
 
         try
