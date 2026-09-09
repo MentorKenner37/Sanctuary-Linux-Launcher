@@ -16,6 +16,8 @@ public partial class MainWindow
     {
         base.OnOpened(e);
         InitializeNewsHome();
+        InitializeLocalServerTab();
+        _ = RefreshLocalServerStatusAsync();
     }
 
     private void InitializeNewsHome()
