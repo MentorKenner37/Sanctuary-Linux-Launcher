@@ -1,7 +1,7 @@
 using System.IO.Compression;
+using System.Net;
 using System.Xml;
 using System.Xml.Linq;
-using System.Net;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -85,7 +85,11 @@ public partial class MainWindow
         _assetPreloadCancellation = new CancellationTokenSource();
         var token = _assetPreloadCancellation.Token;
         if (_assetPreloadButton is not null) _assetPreloadButton.Content = "CANCEL PRELOAD";
-        if (_assetPreloadProgress is not null) { _assetPreloadProgress.IsVisible = true; _assetPreloadProgress.Value = 0; }
+        if (_assetPreloadProgress is not null)
+        {
+            _assetPreloadProgress.IsVisible = true;
+            _assetPreloadProgress.Value = 0;
+        }
 
         try
         {
@@ -96,11 +100,10 @@ public partial class MainWindow
             SetAssetPreloadStatus($"Loading master asset list from {Path.GetFileName(workbookPath)}…");
             var assets = await Task.Run(() => LoadMasterAssetListFromWorkbook(workbookPath), token);
             var totalBytes = assets.Sum(asset => asset.Size);
+            var compressedCount = assets.Count(asset => asset.Compressed);
+            var plainCount = assets.Count - compressedCount;
 
-            SetAssetPreloadStatus($"Loaded {assets.Count:N0} assets ({FormatBytes(totalBytes)}). Detecting Raising Kaines asset URL format…");
-            var pathBuilder = await DiscoverAssetPathBuilderAsync(assets, token);
-            if (pathBuilder is null)
-                throw new InvalidOperationException("Could not determine the Raising Kaines asset URL format. Make sure the asset proxy is running on port 20050.");
+            SetAssetPreloadStatus($"Loaded {assets.Count:N0} assets ({FormatBytes(totalBytes)}) • {compressedCount:N0} compressed • {plainCount:N0} plain. Preparing preload…");
 
             Directory.CreateDirectory(LocalAssetProxyDirectory);
             var completed = File.Exists(LocalAssetPreloadStatePath)
@@ -108,7 +111,7 @@ public partial class MainWindow
                 : new HashSet<string>(StringComparer.Ordinal);
 
             var pending = assets
-                .Select(asset => new AssetRequest(asset, pathBuilder(asset)))
+                .Select(asset => new AssetRequest(asset, BuildAssetRequestPath(asset)))
                 .Where(request => !completed.Contains(request.Path))
                 .ToArray();
 
@@ -125,8 +128,8 @@ public partial class MainWindow
 
             await using var stateStream = new FileStream(LocalAssetPreloadStatePath, FileMode.Append, FileAccess.Write, FileShare.Read);
             await using var stateWriter = new StreamWriter(stateStream) { AutoFlush = false };
-
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+
             await Parallel.ForEachAsync(pending, new ParallelOptions
             {
                 MaxDegreeOfParallelism = AssetPreloadConcurrency,
@@ -136,7 +139,11 @@ public partial class MainWindow
                 var ok = false;
                 try
                 {
-                    using var response = await client.GetAsync(new Uri(LocalAssetProxyBaseUri, request.Path), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                    using var response = await client.GetAsync(
+                        new Uri(LocalAssetProxyBaseUri, request.Path),
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken);
+
                     if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.PartialContent)
                     {
                         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -171,7 +178,8 @@ public partial class MainWindow
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
-                        if (_assetPreloadProgress is not null) _assetPreloadProgress.Value = (double)current / assets.Count;
+                        if (_assetPreloadProgress is not null)
+                            _assetPreloadProgress.Value = (double)current / assets.Count;
                         SetAssetPreloadStatus($"{current:N0}/{assets.Count:N0} ({(double)current / assets.Count:P1}) • cached this run: {FormatBytes(snapshotBytes)} • failed: {snapshotFailed:N0}");
                     });
                 }
@@ -181,6 +189,7 @@ public partial class MainWindow
             SetAssetPreloadStatus(failed == 0
                 ? $"PRELOAD COMPLETE — {succeeded:N0}/{assets.Count:N0} assets are marked cached."
                 : $"Preload finished — {succeeded:N0}/{assets.Count:N0} cached, {failed:N0} failed. Press PRELOAD ALL ASSETS again to retry failures.");
+
             if (_assetPreloadProgress is not null) _assetPreloadProgress.Value = 1;
         }
         catch (OperationCanceledException)
@@ -199,46 +208,12 @@ public partial class MainWindow
         }
     }
 
-    private async Task<Func<MasterAsset, string>?> DiscoverAssetPathBuilderAsync(IReadOnlyList<MasterAsset> assets, CancellationToken token)
+    private static string BuildAssetRequestPath(MasterAsset asset)
     {
-        var probes = assets.Where(asset => asset.Size is > 0 and <= 128 * 1024).Take(6).ToArray();
-        if (probes.Length == 0) return null;
-
-        var candidates = new Func<MasterAsset, string>[]
-        {
-            asset => EscapeAssetName(asset.Name),
-            asset => $"{asset.Key}/{EscapeAssetName(asset.Name)}",
-            asset => asset.Hash.ToString(),
-            asset => $"{asset.Key}/{asset.Hash}",
-            asset => asset.Hash + Uri.EscapeDataString(Path.GetExtension(asset.Name)),
-            asset => $"{asset.Key}/{asset.Hash}{Uri.EscapeDataString(Path.GetExtension(asset.Name))}",
-            asset => $"{asset.Hash}/{EscapeAssetName(asset.Name)}",
-            asset => $"{asset.Key}/{asset.Hash}/{EscapeAssetName(asset.Name)}"
-        };
-
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        foreach (var candidate in candidates)
-        {
-            var successes = 0;
-            foreach (var asset in probes.Take(3))
-            {
-                token.ThrowIfCancellationRequested();
-                try
-                {
-                    using var response = await client.GetAsync(new Uri(LocalAssetProxyBaseUri, candidate(asset)), HttpCompletionOption.ResponseHeadersRead, token);
-                    if (response.StatusCode is not (HttpStatusCode.OK or HttpStatusCode.PartialContent)) continue;
-                    var length = response.Content.Headers.ContentLength;
-                    await using var stream = await response.Content.ReadAsStreamAsync(token);
-                    await stream.CopyToAsync(Stream.Null, token);
-                    if (length is null || asset.Size <= 0 || length == asset.Size) successes++;
-                }
-                catch when (!token.IsCancellationRequested) { }
-            }
-
-            if (successes >= 2) return candidate;
-        }
-
-        return null;
+        var escapedName = EscapeAssetName(asset.Name);
+        return asset.Compressed
+            ? $"{asset.Key}/{escapedName}.z"
+            : escapedName;
     }
 
     private string? FindMasterAssetWorkbook()
@@ -260,11 +235,16 @@ public partial class MainWindow
         using var archive = ZipFile.OpenRead(workbookPath);
         var sharedStrings = ReadSharedStrings(archive);
         var sheetPath = ResolveWorksheetPath(archive, "Master Asset List");
-        var sheetEntry = archive.GetEntry(sheetPath) ?? throw new InvalidDataException($"Worksheet entry {sheetPath} was not found.");
+        var sheetEntry = archive.GetEntry(sheetPath)
+            ?? throw new InvalidDataException($"Worksheet entry {sheetPath} was not found.");
 
         var assets = new List<MasterAsset>(162651);
         using var stream = sheetEntry.Open();
-        using var reader = XmlReader.Create(stream, new XmlReaderSettings { IgnoreWhitespace = true, DtdProcessing = DtdProcessing.Prohibit });
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings
+        {
+            IgnoreWhitespace = true,
+            DtdProcessing = DtdProcessing.Prohibit
+        });
 
         while (reader.Read())
         {
@@ -282,6 +262,7 @@ public partial class MainWindow
             string? name = null;
             uint hash = 0;
             long size = 0;
+            var compressed = false;
 
             using var rowReader = reader.ReadSubtree();
             while (rowReader.Read())
@@ -291,7 +272,7 @@ public partial class MainWindow
 
                 var reference = rowReader.GetAttribute("r") ?? string.Empty;
                 var column = new string(reference.TakeWhile(char.IsLetter).ToArray());
-                if (column is not ("A" or "B" or "C" or "D"))
+                if (column is not ("A" or "B" or "C" or "D" or "F"))
                 {
                     rowReader.Skip();
                     continue;
@@ -305,25 +286,32 @@ public partial class MainWindow
                 switch (column)
                 {
                     case "A":
-                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var keyValue)) key = (int)keyValue;
+                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var keyValue))
+                            key = (int)keyValue;
                         break;
                     case "B":
                         name = value;
                         break;
                     case "C":
-                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var hashValue)) hash = unchecked((uint)hashValue);
+                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var hashValue))
+                            hash = unchecked((uint)hashValue);
                         break;
                     case "D":
-                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sizeValue)) size = (long)sizeValue;
+                        if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sizeValue))
+                            size = (long)sizeValue;
+                        break;
+                    case "F":
+                        compressed = value == "1" || value.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
                         break;
                 }
             }
 
             if (!string.IsNullOrWhiteSpace(name))
-                assets.Add(new MasterAsset(key, name, hash, size));
+                assets.Add(new MasterAsset(key, name, hash, size, compressed));
         }
 
-        if (assets.Count == 0) throw new InvalidDataException("The Master Asset List worksheet did not contain any assets.");
+        if (assets.Count == 0)
+            throw new InvalidDataException("The Master Asset List worksheet did not contain any assets.");
         return assets;
     }
 
@@ -334,7 +322,12 @@ public partial class MainWindow
 
         var strings = new List<string>();
         using var stream = entry.Open();
-        using var reader = XmlReader.Create(stream, new XmlReaderSettings { IgnoreWhitespace = true, DtdProcessing = DtdProcessing.Prohibit });
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings
+        {
+            IgnoreWhitespace = true,
+            DtdProcessing = DtdProcessing.Prohibit
+        });
+
         while (reader.Read())
         {
             if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "si")
@@ -354,23 +347,31 @@ public partial class MainWindow
 
     private static string ResolveWorksheetPath(ZipArchive archive, string sheetName)
     {
-        var workbookEntry = archive.GetEntry("xl/workbook.xml") ?? throw new InvalidDataException("Workbook metadata is missing.");
+        var workbookEntry = archive.GetEntry("xl/workbook.xml")
+            ?? throw new InvalidDataException("Workbook metadata is missing.");
         XDocument workbook;
         using (var stream = workbookEntry.Open()) workbook = XDocument.Load(stream);
+
         XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-        var sheet = workbook.Descendants(main + "sheet").FirstOrDefault(node => string.Equals((string?)node.Attribute("name"), sheetName, StringComparison.Ordinal))
+        var sheet = workbook.Descendants(main + "sheet")
+            .FirstOrDefault(node => string.Equals((string?)node.Attribute("name"), sheetName, StringComparison.Ordinal))
             ?? throw new InvalidDataException($"Worksheet '{sheetName}' was not found.");
-        var relationshipId = (string?)sheet.Attribute(relNs + "id") ?? throw new InvalidDataException("Worksheet relationship is missing.");
+        var relationshipId = (string?)sheet.Attribute(relNs + "id")
+            ?? throw new InvalidDataException("Worksheet relationship is missing.");
 
-        var relEntry = archive.GetEntry("xl/_rels/workbook.xml.rels") ?? throw new InvalidDataException("Workbook relationships are missing.");
+        var relEntry = archive.GetEntry("xl/_rels/workbook.xml.rels")
+            ?? throw new InvalidDataException("Workbook relationships are missing.");
         XDocument relationships;
         using (var stream = relEntry.Open()) relationships = XDocument.Load(stream);
+
         XNamespace packageRel = "http://schemas.openxmlformats.org/package/2006/relationships";
         var target = relationships.Descendants(packageRel + "Relationship")
             .Where(node => string.Equals((string?)node.Attribute("Id"), relationshipId, StringComparison.Ordinal))
             .Select(node => (string?)node.Attribute("Target"))
-            .FirstOrDefault() ?? throw new InvalidDataException("Worksheet target is missing.");
+            .FirstOrDefault()
+            ?? throw new InvalidDataException("Worksheet target is missing.");
+
         return target.StartsWith('/') ? target.TrimStart('/') : "xl/" + target.TrimStart('/');
     }
 
@@ -382,13 +383,16 @@ public partial class MainWindow
         {
             if (cellReader.NodeType == XmlNodeType.Element && cellReader.LocalName == "v")
                 return cellReader.ReadElementContentAsString();
+            if (cellReader.NodeType == XmlNodeType.Element && cellReader.LocalName == "t")
+                return cellReader.ReadElementContentAsString();
             if (cellReader.NodeType == XmlNodeType.EndElement && cellReader.Depth == depth && cellReader.LocalName == "c")
                 break;
         }
         return string.Empty;
     }
 
-    private static string EscapeAssetName(string name) => string.Join('/', name.Split('/').Select(Uri.EscapeDataString));
+    private static string EscapeAssetName(string name) =>
+        string.Join('/', name.Split('/').Select(Uri.EscapeDataString));
 
     private void SetAssetPreloadStatus(string text)
     {
@@ -400,10 +404,14 @@ public partial class MainWindow
         string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
         var value = (double)bytes;
         var unit = 0;
-        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
         return $"{value:0.##} {units[unit]}";
     }
 
-    private sealed record MasterAsset(int Key, string Name, uint Hash, long Size);
+    private sealed record MasterAsset(int Key, string Name, uint Hash, long Size, bool Compressed);
     private sealed record AssetRequest(MasterAsset Asset, string Path);
 }
